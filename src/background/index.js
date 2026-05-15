@@ -25,6 +25,9 @@ initStateSync();
 // The background sees ALL messages and routes them. Do NOT filter by target.
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  // Prevent infinite forwarding loops — skip messages we already forwarded
+  if (message._forwarded) return false;
+
   setModuleStatus('bg', 'active');
   log('bg', 'log', 'Received:', message.type || '(no type)', '| target:', message.target || '(no target)');
 
@@ -50,7 +53,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     log('bg', 'log', 'Forwarding to offscreen:', message.type);
     ensureOffscreen().then(() => {
       setModuleStatus('offscreen', 'active');
-      chrome.runtime.sendMessage(message).catch((e) => {
+      chrome.runtime.sendMessage({ ...message, _forwarded: true }).catch((e) => {
         log('bg', 'error', 'Failed to forward to offscreen:', e.message);
         recordError('bg', e.message);
         setModuleStatus('offscreen', 'error');
@@ -66,7 +69,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   // Offscreen → popup (status updates, errors, progress)
   if (message.target === 'popup') {
     log('bg', 'log', 'Forwarding to popup:', message.type);
-    chrome.runtime.sendMessage(message).catch(() => {
+    chrome.runtime.sendMessage({ ...message, _forwarded: true }).catch(() => {
       // Popup may be closed — that's fine
     });
     return false;
