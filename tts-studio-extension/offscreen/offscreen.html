@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>TTS Studio Offscreen</title>
+</head>
+<body>
+  <!--
+    This hidden page is the engine room. Chrome MV3 service workers
+    cannot run WebAssembly or play audio directly — the offscreen
+    document gets those privileges. Everything TTS-related happens here.
+  -->
+  <script type="module" src="offscreen.js"></script>
+</body>
+</html>

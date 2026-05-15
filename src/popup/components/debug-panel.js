@@ -3,6 +3,8 @@
  * Toggle with the 🐛 button in the header.
  */
 
+import { createDebugDashboard, destroyDebugDashboard } from './debug-dashboard.js';
+
 const MAX_DISPLAYED = 100;
 
 let panelEl = null;
@@ -20,12 +22,11 @@ export function createDebugPanel(container) {
   panelEl.style.cssText = `
     display: none;
     position: fixed;
-    bottom: 0;
+    top: 0;
     left: 0;
     right: 0;
-    height: 200px;
+    bottom: 0;
     background: #0a0a14;
-    border-top: 1px solid #2a2a48;
     font-family: 'JetBrains Mono', monospace;
     font-size: 10px;
     color: #a0a0b8;
@@ -47,7 +48,7 @@ export function createDebugPanel(container) {
     <span style="color:#6b6b8f;font-size:9px;">🐛 DEBUG</span>
     <button id="debug-clear" style="background:none;border:1px solid #2a2a48;color:#6b6b8f;font-size:9px;padding:2px 6px;border-radius:4px;cursor:pointer;">Clear</button>
     <button id="debug-copy" style="background:none;border:1px solid #2a2a48;color:#6b6b8f;font-size:9px;padding:2px 6px;border-radius:4px;cursor:pointer;">Copy All</button>
-    <span id="debug-count" style="margin-left:auto;color:#3a3a5c;font-size:9px;">0 logs</span>
+    <button id="debug-close" style="background:none;border:1px solid #2a2a48;color:#6b6b8f;font-size:9px;padding:2px 6px;border-radius:4px;cursor:pointer;margin-left:auto;">✕ Close</button>
   `;
 
   // Log list
@@ -66,9 +67,15 @@ export function createDebugPanel(container) {
   panelEl.appendChild(logListEl);
   container.appendChild(panelEl);
 
+  createDebugDashboard(panelEl);
+
   // Event handlers
   toolbar.querySelector('#debug-clear').addEventListener('click', clearLogs);
   toolbar.querySelector('#debug-copy').addEventListener('click', copyAllLogs);
+  toolbar.querySelector('#debug-close').addEventListener('click', () => {
+    toggleDebugPanel();
+    document.dispatchEvent(new CustomEvent('debug-panel-closed'));
+  });
 }
 
 /**
@@ -79,6 +86,18 @@ export function toggleDebugPanel() {
   if (panelEl) {
     panelEl.style.display = isVisible ? 'flex' : 'none';
   }
+  if (isVisible) {
+    createDebugDashboard(panelEl);
+  } else {
+    destroyDebugDashboard();
+  }
+  return isVisible;
+}
+
+/**
+ * Check if the debug panel is currently visible.
+ */
+export function isDebugPanelVisible() {
   return isVisible;
 }
 
@@ -135,6 +154,7 @@ function clearLogs() {
   const countEl = document.getElementById('debug-count');
   if (countEl) countEl.textContent = '0 logs';
   chrome.storage.session.remove('tts_debug_logs').catch(() => {});
+  chrome.storage.session.remove('tts_system_state').catch(() => {});
 }
 
 function copyAllLogs() {

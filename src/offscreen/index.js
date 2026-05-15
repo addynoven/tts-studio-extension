@@ -15,6 +15,7 @@ import {
 import { loadModel, generateAudio } from './tts/index.js';
 import { splitIntoSentences, chunkSentences } from '../shared/sentence-splitter.js';
 import { log } from '../shared/logger.js';
+import { setPhase, setModuleStatus, setTimeline, updateTimelineItem, addTimelineItem, setQueueState, recordError, recordTiming, resetPhase } from '../shared/state-tracker.js';
 
 // ── Message helpers ────────────────────────────────────────────────────────
 
@@ -28,14 +29,22 @@ chrome.runtime.onMessage.addListener((message) => {
   if (message.target !== 'offscreen') return;
 
   if (message.type === MSG.TTS_GENERATE) {
+    setModuleStatus('offscreen', 'busy');
     handleGenerate(message).catch(e => {
       log('offscreen', 'error', 'handleGenerate failed:', e.message);
+      recordError('offscreen', e.message);
+      setPhase('error', { message: e.message });
+      setModuleStatus('offscreen', 'error');
       toPopup(MSG.STATUS_ERROR, { error: e.message });
+    }).finally(() => {
+      setModuleStatus('offscreen', 'idle');
     });
   }
 
   if (message.type === MSG.TTS_STOP) {
     log('offscreen', 'log', 'Stop requested');
+    setPhase('stopped');
+    setModuleStatus('offscreen', 'idle');
     resetScheduler();
   }
 });
@@ -90,22 +99,35 @@ async function handleGenerate({ text, model, voice, speed, useGPU }) {
   log('offscreen', 'log', 'Model:', model, '| Voice:', voice, '| Speed:', speed);
   log('offscreen', 'log', 'Text length:', text.length, 'chars');
 
+  await resetPhase();
+  setPhase('start', { model });
+  setModuleStatus('offscreen', 'busy');
+
   resetScheduler();
   toPopup(MSG.STATUS_GENERATING);
 
   const onProgress = (pct) => toPopup(MSG.STATUS_PROGRESS, { percent: pct });
 
   try {
+    setPhase('loading', { model });
+    addTimelineItem({ label: `Load model: ${model}`, status: 'running' });
+    const loadStart = performance.now();
     await loadModel(model, onProgress);
+    recordTiming('modelLoad', performance.now() - loadStart);
+    updateTimelineItem(`Load model: ${model}`, { status: 'done', durationMs: Math.round(performance.now() - loadStart) });
+
     await resumeAudioContext();
 
     // Split text into sentence chunks for natural pauses
+    setPhase('generating', { model, currentChunk: 0, totalChunks: 1 });
     const sentences = splitIntoSentences(text);
     log('offscreen', 'log', 'Split into', sentences.length, 'sentences');
     sentences.forEach((s, i) => log('offscreen', 'log', `  [${i}]`, s.slice(0, 60) + (s.length > 60 ? '...' : '')));
 
     if (sentences.length === 0) {
       log('offscreen', 'error', 'No sentences found in text');
+      recordError('offscreen', 'No text to synthesize');
+      setPhase('error', { message: 'No text to synthesize' });
       toPopup(MSG.STATUS_ERROR, { error: 'No text to synthesize' });
       return;
     }
@@ -113,9 +135,12 @@ async function handleGenerate({ text, model, voice, speed, useGPU }) {
     // For short text (single sentence), just synthesize directly
     if (sentences.length === 1) {
       log('offscreen', 'log', 'Single sentence — direct synthesis');
+      addTimelineItem({ label: 'Synthesize text', status: 'running' });
       const { audio, sampleRate } = await generateAudio(model, text, voice, speed);
       const buffer = createAudioBuffer(new Float32Array(audio), sampleRate);
       enqueueChunk(0, buffer);
+      updateTimelineItem('Synthesize text', { status: 'done' });
+      setPhase('done');
       toPopup(MSG.STATUS_DONE);
       log('offscreen', 'log', '=== GENERATE DONE (single) ===');
       return;
@@ -127,48 +152,102 @@ async function handleGenerate({ text, model, voice, speed, useGPU }) {
     log('offscreen', 'log', 'Chunked into', totalChunks, 'chunks');
     chunks.forEach((c, i) => log('offscreen', 'log', `  Chunk[${i}] (${c.length} chars):`, c.slice(0, 60) + (c.length > 60 ? '...' : '')));
 
-    // Synthesize chunks in parallel where possible, but enqueue in order
+    // Build timeline
+    const timeline = chunks.map((_, i) => ({
+      label: `Synthesize chunk ${i + 1}/${totalChunks}`,
+      status: 'pending'
+    }));
+    timeline.push({ label: 'Playback', status: 'pending' });
+    await setTimeline(timeline);
+    await setQueueState({ totalChunks, completedChunks: 0, scheduledIndex: 0, queueSize: 0 });
+
+    // Synthesize chunks with limited concurrency (max 2 at a time)
+    // ONNX Runtime WASM backend can get overwhelmed by too many concurrent sessions
     let completedCount = 0;
+    let errorCount = 0;
+    let runningCount = 0;
+    let nextIndex = 0;
 
-    const synthesisPromises = chunks.map(async (chunk, index) => {
-      log('offscreen', 'log', `Chunk[${index}] synthesizing...`);
-      try {
-        const startTime = performance.now();
-        const { audio, sampleRate } = await generateAudio(model, chunk, voice, speed);
-        const elapsed = (performance.now() - startTime).toFixed(0);
-        log('offscreen', 'log', `Chunk[${index}] synthesized in ${elapsed}ms, ${audio.length} samples @ ${sampleRate}Hz`);
+    function startNext() {
+      while (runningCount < 2 && nextIndex < totalChunks) {
+        const index = nextIndex++;
+        runningCount++;
+        const label = `Synthesize chunk ${index + 1}/${totalChunks}`;
+        updateTimelineItem(label, { status: 'running' });
+        setPhase('generating', { model, currentChunk: index, totalChunks });
+        log('offscreen', 'log', `Chunk[${index}] synthesizing...`);
 
-        const buffer = createAudioBuffer(new Float32Array(audio), sampleRate);
+        synthesizeChunk(index, label).then(() => {
+          runningCount--;
+          completedCount++;
+          setQueueState({ completedChunks: completedCount });
+          log('offscreen', 'log', `Progress: ${completedCount}/${totalChunks} chunks done`);
 
-        // Enqueue the audio
-        enqueueChunk(index * 2, buffer);
-        log('offscreen', 'log', `Chunk[${index}] enqueued at position ${index * 2}`);
-
-        // Enqueue a pause after this chunk (except for the last one)
-        if (index < totalChunks - 1) {
-          const isParaBreak = isFollowedByParagraph(text, chunk);
-          const pauseDur = isParaBreak ? 0.7 : getPauseDuration(chunk, false);
-          enqueuePause(index * 2 + 1, pauseDur);
-          log('offscreen', 'log', `Pause[${index}] enqueued: ${(pauseDur * 1000).toFixed(0)}ms (para=${isParaBreak})`);
-        }
-
-        completedCount++;
-        log('offscreen', 'log', `Progress: ${completedCount}/${totalChunks} chunks done`);
-        if (completedCount === totalChunks) {
-          toPopup(MSG.STATUS_DONE);
-          log('offscreen', 'log', '=== GENERATE DONE ===');
-        }
-
-      } catch (e) {
-        log('offscreen', 'error', `Chunk[${index}] failed:`, e.message);
-        // Continue with other chunks — don't let one bad chunk kill the whole article
+          if (completedCount + errorCount >= totalChunks) {
+            updateTimelineItem('Playback', { status: 'running' });
+            setPhase('playing', { model, totalChunks });
+            toPopup(MSG.STATUS_DONE);
+            log('offscreen', 'log', '=== GENERATE DONE ===');
+            setPhase('done');
+          } else {
+            startNext();
+          }
+        }).catch((e) => {
+          runningCount--;
+          errorCount++;
+          log('offscreen', 'error', `Chunk[${index}] failed:`, e.message);
+          recordError('offscreen', `Chunk[${index}]: ${e.message}`);
+          updateTimelineItem(label, { status: 'error' });
+          // Continue even if one chunk fails
+          if (completedCount + errorCount >= totalChunks) {
+            updateTimelineItem('Playback', { status: 'running' });
+            setPhase('playing', { model, totalChunks });
+            toPopup(MSG.STATUS_DONE);
+            log('offscreen', 'log', '=== GENERATE DONE (with errors) ===');
+            setPhase('done');
+          } else {
+            startNext();
+          }
+        });
       }
-    });
+    }
 
-    await Promise.all(synthesisPromises);
+    async function synthesizeChunk(index, label) {
+      const startTime = performance.now();
+      const { audio, sampleRate } = await generateAudio(model, chunks[index], voice, speed);
+      const elapsed = Math.round(performance.now() - startTime);
+      recordTiming(`chunk_${index}`, elapsed);
+      log('offscreen', 'log', `Chunk[${index}] synthesized in ${elapsed}ms, ${audio.length} samples @ ${sampleRate}Hz`);
+      updateTimelineItem(label, { status: 'done', durationMs: elapsed });
+
+      const buffer = createAudioBuffer(new Float32Array(audio), sampleRate);
+      enqueueChunk(index * 2, buffer);
+      log('offscreen', 'log', `Chunk[${index}] enqueued at position ${index * 2}`);
+
+      // Enqueue a pause after this chunk (except for the last one)
+      if (index < totalChunks - 1) {
+        const isParaBreak = isFollowedByParagraph(text, chunks[index]);
+        const pauseDur = isParaBreak ? 0.7 : getPauseDuration(chunks[index], false);
+        enqueuePause(index * 2 + 1, pauseDur);
+        log('offscreen', 'log', `Pause[${index}] enqueued: ${(pauseDur * 1000).toFixed(0)}ms (para=${isParaBreak})`);
+      }
+    }
+
+    startNext();
+    // Wait for all to complete
+    await new Promise((resolve) => {
+      const check = setInterval(() => {
+        if (completedCount + errorCount >= totalChunks) {
+          clearInterval(check);
+          resolve();
+        }
+      }, 100);
+    });
 
   } catch (e) {
     log('offscreen', 'error', 'Top-level generate failed:', e.message);
+    recordError('offscreen', e.message);
+    setPhase('error', { message: e.message });
     toPopup(MSG.STATUS_ERROR, { error: e.message });
     throw e;
   }
