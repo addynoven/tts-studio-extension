@@ -24,7 +24,7 @@ const gpuToggle = document.getElementById('gpuToggle');
 
 // ── State ──────────────────────────────────────────────────────────────────
 
-let isGenerating = false;
+let uiState = 'idle'; // 'idle' | 'loading' | 'playing' | 'paused'
 let generationTimeout = null;
 const GENERATION_TIMEOUT_MS = 60000; // 60s safety timeout
 
@@ -78,7 +78,7 @@ async function init() {
   });
 
   // Buttons
-  btnGenerate.addEventListener('click', generate);
+  btnGenerate.addEventListener('click', onGenerateClick);
   btnStop.addEventListener('click', stop);
   btnSelected.addEventListener('click', useSelectedText);
 
@@ -97,22 +97,31 @@ async function init() {
 
 // ─- Actions ────────────────────────────────────────────────────────────────
 
+function onGenerateClick() {
+  if (uiState === 'idle') {
+    generate();
+  } else if (uiState === 'loading' || uiState === 'playing') {
+    pause();
+  } else if (uiState === 'paused') {
+    resume();
+  }
+}
+
 async function generate() {
   const text = textInput.value.trim();
   if (!text) { setStatus('idle', 'Enter some text first'); return; }
-  if (isGenerating) return;
+  if (uiState === 'loading' || uiState === 'playing') return;
+  if (uiState === 'paused') stop();
 
-  isGenerating = true;
-  btnGenerate.disabled = true;
-  btnStop.disabled = false;
+  setUIState('loading');
   setStatus('loading', 'Loading model…');
   setPhase('start');
 
   // Safety timeout — if offscreen hangs/crashes, reset UI
   generationTimeout = setTimeout(() => {
-    if (isGenerating) {
+    if (uiState !== 'idle') {
       log('popup', 'warn', 'Generation timed out after ' + GENERATION_TIMEOUT_MS + 'ms');
-      resetButtons();
+      setUIState('idle');
       setStatus('error', 'Timed out — model may be stuck. Try again.');
       setPhase('error', { message: 'Generation timeout' });
     }
@@ -129,9 +138,23 @@ async function generate() {
   });
 }
 
+function pause() {
+  if (uiState !== 'loading' && uiState !== 'playing') return;
+  chrome.runtime.sendMessage({ target: 'offscreen', type: MSG.TTS_PAUSE });
+  setUIState('paused');
+  setStatus('paused', 'Paused');
+}
+
+function resume() {
+  if (uiState !== 'paused') return;
+  chrome.runtime.sendMessage({ target: 'offscreen', type: MSG.TTS_RESUME });
+  setUIState('playing');
+  setStatus('playing', 'Playing…');
+}
+
 function stop() {
   chrome.runtime.sendMessage({ target: 'offscreen', type: MSG.TTS_STOP });
-  resetButtons();
+  setUIState('idle');
   setStatus('idle', 'Stopped');
 }
 
@@ -159,11 +182,34 @@ async function useSelectedText() {
   }
 }
 
-function resetButtons() {
-  isGenerating = false;
-  btnGenerate.disabled = false;
-  btnStop.disabled = true;
+// ── UI State machine ───────────────────────────────────────────────────────
+
+function setUIState(state) {
+  uiState = state;
   clearGenerationTimeout();
+
+  switch (state) {
+    case 'idle':
+      btnGenerate.innerHTML = '<span>▶</span> Generate';
+      btnGenerate.disabled = false;
+      btnStop.disabled = true;
+      break;
+    case 'loading':
+      btnGenerate.innerHTML = '<span>⏸</span> Pause';
+      btnGenerate.disabled = false;
+      btnStop.disabled = false;
+      break;
+    case 'playing':
+      btnGenerate.innerHTML = '<span>⏸</span> Pause';
+      btnGenerate.disabled = false;
+      btnStop.disabled = false;
+      break;
+    case 'paused':
+      btnGenerate.innerHTML = '<span>▶</span> Resume';
+      btnGenerate.disabled = false;
+      btnStop.disabled = false;
+      break;
+  }
 }
 
 // ── Message handler ────────────────────────────────────────────────────────
@@ -183,19 +229,25 @@ function handleMessages(message) {
       setStatus('loading', `Downloading ${message.model} model… first time only`);
       break;
     case MSG.STATUS_GENERATING:
+      setUIState('loading');
       setStatus('generating', 'Synthesizing speech…');
       break;
     case MSG.STATUS_PLAYING:
+      setUIState('playing');
       setStatus('playing', 'Playing…');
       break;
+    case MSG.STATUS_PAUSED:
+      setUIState('paused');
+      setStatus('paused', 'Paused');
+      break;
     case MSG.STATUS_DONE:
-      resetButtons();
+      setUIState('idle');
       setStatus('ready', 'Done ✓');
       setPhase('done');
       setTimeout(() => setStatus('idle', 'Ready'), 3000);
       break;
     case MSG.STATUS_ERROR:
-      resetButtons();
+      setUIState('idle');
       setStatus('error', `Error: ${message.error}`);
       recordError('popup', message.error);
       setPhase('error', { message: message.error });

@@ -2,29 +2,42 @@
  * KittenTTS ONNX inference engine.
  */
 
-import { MODEL_PATHS, LIB_PATHS } from '../../shared/constants.js';
+import { MODEL_PATHS } from '../../shared/constants.js';
 import { fetchAndCache } from '../cache/indexeddb.js';
 import { phonemize } from '../utils/phonemize.js';
+import { loadORT, createSession } from '../utils/ort-loader.js';
 
-const LIB_BASE = chrome.runtime.getURL('assets/lib/');
-let ort = null;
 let kittenSession = null;
 let kittenTokenizer = null;
 let kittenVoices = null;
 
-async function loadORT() {
-  if (ort) return ort;
-  const mod = await import(LIB_BASE + 'ort.min.mjs');
-  ort = mod;
-  ort.env.wasm.wasmPaths = LIB_BASE;
-  ort.env.wasm.numThreads = 1;
-  return ort;
+// Serialize inference — ONNX WASM session.run() is not thread-safe
+const kittenQueue = [];
+let kittenRunning = false;
+
+async function runKittenQueue() {
+  if (kittenRunning) return;
+  kittenRunning = true;
+  while (kittenQueue.length > 0) {
+    const { fn, resolve, reject } = kittenQueue.shift();
+    try {
+      resolve(await fn());
+    } catch (e) {
+      reject(e);
+    }
+  }
+  kittenRunning = false;
 }
 
-export async function loadKitten(onProgress) {
-  if (kittenSession) return;
+function enqueueKitten(fn) {
+  return new Promise((resolve, reject) => {
+    kittenQueue.push({ fn, resolve, reject });
+    runKittenQueue();
+  });
+}
 
-  await loadORT();
+export async function loadKitten(onProgress, useGPU = false) {
+  if (kittenSession) return;
 
   const base = chrome.runtime.getURL('');
   const [modelBlob, tokenizerBlob, voicesBlob] = await Promise.all([
@@ -37,12 +50,11 @@ export async function loadKitten(onProgress) {
   kittenTokenizer = JSON.parse(await tokenizerBlob.text());
   kittenVoices = JSON.parse(await voicesBlob.text());
 
-  kittenSession = await ort.InferenceSession.create(modelArr, {
-    executionProviders: [{ name: 'wasm', simd: true }]
-  });
+  kittenSession = await createSession(modelArr, useGPU);
 }
 
 export async function generateKitten(text, voice = 'Bella', speed = 1.0) {
+  const ort = await loadORT();
   const vocab = kittenTokenizer.model?.vocab ?? kittenTokenizer.vocab ?? {};
   const rawPhonemes = await phonemize(text, 'en-us');
 
@@ -56,10 +68,13 @@ export async function generateKitten(text, voice = 'Bella', speed = 1.0) {
   const speakerEmbedding = new Float32Array(voiceEmbedding[0]);
   const inputIds = new BigInt64Array(tokens.map(id => BigInt(id)));
 
-  const result = await kittenSession.run({
-    'input_ids': new ort.Tensor('int64', inputIds, [1, inputIds.length]),
-    'style': new ort.Tensor('float32', speakerEmbedding, [1, speakerEmbedding.length]),
-    'speed': new ort.Tensor('float32', new Float32Array([speed]), [1])
+  // Serialize ONNX inference to avoid corrupting shared WASM state
+  const result = await enqueueKitten(async () => {
+    return await kittenSession.run({
+      'input_ids': new ort.Tensor('int64', inputIds, [1, inputIds.length]),
+      'style': new ort.Tensor('float32', speakerEmbedding, [1, speakerEmbedding.length]),
+      'speed': new ort.Tensor('float32', new Float32Array([speed]), [1])
+    });
   });
 
   const audio = result.waveform?.data ?? result[Object.keys(result)[0]]?.data;

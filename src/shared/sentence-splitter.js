@@ -12,10 +12,10 @@
 export function splitIntoSentences(text) {
   if (!text) return [];
   
-  // Split at sentence endings followed by space and uppercase
+  // Split at sentence endings followed by space and a letter (any case)
   // Also split at double newlines
   return text
-    .replace(/([.!?])(\s+)(?=[A-Z"'])/g, '$1\n')
+    .replace(/([.!?])(\s+)(?=[A-Za-z"'])/g, '$1\n')
     .split(/\n+/)
     .map(s => s.trim())
     .filter(s => s.length > 0);

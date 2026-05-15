@@ -10,11 +10,12 @@ import { loadPiper, generatePiper } from './piper.js';
  * Load a model (if not already loaded).
  * @param {string} model - 'kitten' | 'piper'
  * @param {function} onProgress - (percent) => void
+ * @param {boolean} useGPU - try WebGPU first
  */
-export async function loadModel(model, onProgress) {
+export async function loadModel(model, onProgress, useGPU = false) {
   switch (model) {
-    case 'kitten': await loadKitten(onProgress); break;
-    case 'piper':  await loadPiper(onProgress);  break;
+    case 'kitten': await loadKitten(onProgress, useGPU); break;
+    case 'piper':  await loadPiper(onProgress, useGPU);  break;
     default: throw new Error(`Unknown model: ${model}`);
   }
 }
