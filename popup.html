@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TTS Studio</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    /* ── Reset & base ─────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #07070e;
+      --surface:  #0f0f1c;
+      --surface2: #161627;
+      --border:   #1f1f38;
+      --border2:  #2a2a48;
+      --text:     #e2e2f0;
+      --muted:    #6b6b8f;
+      --dim:      #3a3a5c;
+
+      /* Model accent colours */
+      --kitten:   #fbbf24;
+      --kokoro:   #f472b6;
+      --piper:    #22d3ee;
+
+      --accent:   var(--kokoro); /* changes with active model */
+      --radius:   8px;
+      --font:     'Syne', sans-serif;
+      --mono:     'JetBrains Mono', monospace;
+    }
+
+    body {
+      width: 400px;
+      min-height: 520px;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 13px;
+      user-select: none;
+      overflow-x: hidden;
+    }
+
+    /* ── Header ───────────────────────────────────────────── */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 16px 12px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .logo-icon {
+      width: 28px; height: 28px;
+      background: linear-gradient(135deg, var(--accent) 0%, #7c3aed 100%);
+      border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px;
+      transition: background 0.3s;
+    }
+
+    .logo-text {
+      font-size: 14px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text);
+    }
+
+    .logo-text span {
+      color: var(--accent);
+      transition: color 0.3s;
+    }
+
+    .header-badge {
+      font-family: var(--mono);
+      font-size: 9px;
+      color: var(--muted);
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 2px 6px;
+      letter-spacing: 0.05em;
+    }
+
+    /* ── Model selector tabs ──────────────────────────────── */
+    .model-tabs {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 6px;
+      padding: 12px 16px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .model-tab {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 8px 6px;
+      cursor: pointer;
+      text-align: center;
+      transition: all 0.18s ease;
+      color: var(--muted);
+    }
+
+    .model-tab:hover { border-color: var(--border2); color: var(--text); }
+
+    .model-tab.active {
+      background: color-mix(in srgb, var(--accent) 12%, var(--surface2));
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .model-tab .tab-emoji { font-size: 16px; display: block; margin-bottom: 3px; }
+    .model-tab .tab-name  { font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; display: block; }
+    .model-tab .tab-size  { font-family: var(--mono); font-size: 9px; opacity: 0.6; display: block; margin-top: 1px; }
+
+    /* ── Main controls ────────────────────────────────────── */
+    .controls {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .control-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .control-label {
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+      min-width: 44px;
+    }
+
+    /* Voice select */
+    select {
+      flex: 1;
+      background: var(--surface2);
+      border: 1px solid var(--border2);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 12px;
+      padding: 6px 10px;
+      cursor: pointer;
+      outline: none;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%236b6b8f'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 10px center;
+      padding-right: 28px;
+      transition: border-color 0.18s;
+    }
+
+    select:focus { border-color: var(--accent); }
+    select option { background: #1a1a2e; }
+
+    /* Speed slider */
+    .speed-wrap { flex: 1; display: flex; align-items: center; gap: 10px; }
+
+    input[type="range"] {
+      -webkit-appearance: none;
+      flex: 1;
+      height: 3px;
+      border-radius: 2px;
+      background: var(--border2);
+      outline: none;
+      cursor: pointer;
+    }
+
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 14px; height: 14px;
+      border-radius: 50%;
+      background: var(--accent);
+      cursor: pointer;
+      transition: background 0.18s;
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);
+    }
+
+    .speed-val {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--accent);
+      min-width: 30px;
+      text-align: right;
+      transition: color 0.3s;
+    }
+
+    /* WebGPU toggle */
+    .toggle-wrap { display: flex; align-items: center; gap: 8px; }
+
+    .toggle {
+      width: 32px; height: 18px;
+      background: var(--border2);
+      border-radius: 9px;
+      cursor: pointer;
+      position: relative;
+      transition: background 0.18s;
+      flex-shrink: 0;
+    }
+
+    .toggle.on { background: var(--accent); }
+
+    .toggle::after {
+      content: '';
+      position: absolute;
+      width: 12px; height: 12px;
+      border-radius: 50%;
+      background: #fff;
+      top: 3px; left: 3px;
+      transition: transform 0.18s;
+    }
+
+    .toggle.on::after { transform: translateX(14px); }
+
+    .toggle-label { font-size: 11px; color: var(--muted); cursor: pointer; }
+
+    /* ── Text area ────────────────────────────────────────── */
+    .textarea-wrap { padding: 0 16px 14px; }
+
+    textarea {
+      width: 100%;
+      height: 100px;
+      background: var(--surface2);
+      border: 1px solid var(--border2);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 12px;
+      line-height: 1.6;
+      padding: 10px 12px;
+      resize: none;
+      outline: none;
+      transition: border-color 0.18s;
+    }
+
+    textarea:focus { border-color: var(--accent); }
+    textarea::placeholder { color: var(--dim); }
+
+    .char-count {
+      font-family: var(--mono);
+      font-size: 9px;
+      color: var(--dim);
+      text-align: right;
+      margin-top: 4px;
+    }
+
+    /* ── Action buttons ───────────────────────────────────── */
+    .actions {
+      display: flex;
+      gap: 8px;
+      padding: 0 16px 14px;
+    }
+
+    .btn {
+      flex: 1;
+      padding: 9px 12px;
+      border-radius: var(--radius);
+      font-family: var(--font);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      cursor: pointer;
+      border: 1px solid var(--border2);
+      transition: all 0.18s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+
+    .btn-ghost {
+      background: var(--surface2);
+      color: var(--muted);
+    }
+
+    .btn-ghost:hover:not(:disabled) {
+      border-color: var(--border2);
+      color: var(--text);
+      background: var(--surface);
+    }
+
+    .btn-primary {
+      background: color-mix(in srgb, var(--accent) 15%, var(--surface2));
+      border-color: var(--accent);
+      color: var(--accent);
+      flex: 2;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      background: color-mix(in srgb, var(--accent) 25%, var(--surface2));
+    }
+
+    .btn-stop {
+      background: color-mix(in srgb, #ef4444 12%, var(--surface2));
+      border-color: #ef4444;
+      color: #ef4444;
+    }
+
+    .btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    /* ── Status bar ───────────────────────────────────────── */
+    .status-bar {
+      border-top: 1px solid var(--border);
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--surface);
+      min-height: 38px;
+    }
+
+    .status-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--muted);
+      flex-shrink: 0;
+      transition: background 0.3s;
+    }
+
+    .status-dot.loading { background: var(--kitten); animation: pulse 1s infinite; }
+    .status-dot.generating { background: var(--accent); animation: pulse 0.6s infinite; }
+    .status-dot.playing { background: #22c55e; animation: pulse 0.5s infinite; }
+    .status-dot.error { background: #ef4444; }
+    .status-dot.ready { background: #22c55e; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.3; }
+    }
+
+    .status-text {
+      font-size: 11px;
+      color: var(--muted);
+      flex: 1;
+      font-family: var(--mono);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* Progress bar */
+    .progress-wrap {
+      width: 100%;
+      height: 2px;
+      background: var(--border);
+      border-radius: 1px;
+      overflow: hidden;
+      margin-top: 4px;
+      display: none;
+    }
+
+    .progress-wrap.visible { display: block; }
+
+    .progress-fill {
+      height: 100%;
+      background: var(--accent);
+      border-radius: 1px;
+      width: 0%;
+      transition: width 0.3s ease, background 0.3s;
+    }
+
+    .progress-fill.indeterminate {
+      width: 40% !important;
+      animation: slide 1.2s ease-in-out infinite;
+    }
+
+    @keyframes slide {
+      0%   { transform: translateX(-150%); }
+      100% { transform: translateX(350%); }
+    }
+
+    /* ── Model-specific theming ───────────────────────────── */
+    body[data-model="kitten"] { --accent: var(--kitten); }
+    body[data-model="kokoro"] { --accent: var(--kokoro); }
+    body[data-model="piper"]  { --accent: var(--piper);  }
+
+    /* ── Waveform visualizer ──────────────────────────────── */
+    .waveform {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      height: 16px;
+    }
+
+    .waveform-bar {
+      width: 2px;
+      background: var(--accent);
+      border-radius: 1px;
+      height: 4px;
+      opacity: 0.6;
+      transition: background 0.3s;
+    }
+
+    .waveform.playing .waveform-bar {
+      animation: wave 0.8s ease-in-out infinite;
+    }
+
+    .waveform-bar:nth-child(1)  { animation-delay: 0.0s; }
+    .waveform-bar:nth-child(2)  { animation-delay: 0.1s; }
+    .waveform-bar:nth-child(3)  { animation-delay: 0.2s; }
+    .waveform-bar:nth-child(4)  { animation-delay: 0.3s; }
+    .waveform-bar:nth-child(5)  { animation-delay: 0.2s; }
+    .waveform-bar:nth-child(6)  { animation-delay: 0.1s; }
+    .waveform-bar:nth-child(7)  { animation-delay: 0.0s; }
+
+    @keyframes wave {
+      0%, 100% { height: 3px;  opacity: 0.4; }
+      50%       { height: 14px; opacity: 1;   }
+    }
+  </style>
+</head>
+<body data-model="kokoro">
+
+  <!-- Header -->
+  <header class="header">
+    <div class="logo">
+      <div class="logo-icon" id="logoIcon">🎙️</div>
+      <span class="logo-text">TTS <span id="logoAccent">Studio</span></span>
+    </div>
+    <span class="header-badge">100% LOCAL</span>
+  </header>
+
+  <!-- Model tabs -->
+  <nav class="model-tabs">
+    <button class="model-tab" data-model="kitten">
+      <span class="tab-emoji">😻</span>
+      <span class="tab-name">Kitten</span>
+      <span class="tab-size">24 MB · 8 voices</span>
+    </button>
+    <button class="model-tab active" data-model="kokoro">
+      <span class="tab-emoji">🌸</span>
+      <span class="tab-name">Kokoro</span>
+      <span class="tab-size">82 MB · 21 voices</span>
+    </button>
+    <button class="model-tab" data-model="piper">
+      <span class="tab-emoji">🃏</span>
+      <span class="tab-name">Piper</span>
+      <span class="tab-size">75 MB · 904 voices</span>
+    </button>
+  </nav>
+
+  <!-- Controls -->
+  <div class="controls">
+    <!-- Voice -->
+    <div class="control-row">
+      <span class="control-label">Voice</span>
+      <select id="voiceSelect"></select>
+    </div>
+
+    <!-- Speed -->
+    <div class="control-row">
+      <span class="control-label">Speed</span>
+      <div class="speed-wrap">
+        <input type="range" id="speedSlider" min="0.5" max="2.0" step="0.05" value="1.0" />
+        <span class="speed-val" id="speedVal">1.0×</span>
+      </div>
+    </div>
+
+    <!-- WebGPU -->
+    <div class="control-row">
+      <span class="control-label">GPU</span>
+      <div class="toggle-wrap">
+        <div class="toggle" id="gpuToggle" title="WebGPU acceleration (experimental)"></div>
+        <span class="toggle-label">WebGPU (experimental)</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Text input -->
+  <div class="textarea-wrap">
+    <textarea id="textInput" placeholder="Type or paste text to synthesize…" spellcheck="false"></textarea>
+    <div class="char-count"><span id="charCount">0</span> chars</div>
+  </div>
+
+  <!-- Action buttons -->
+  <div class="actions">
+    <button class="btn btn-ghost" id="btnSelected" title="Use selected text from active tab">
+      📋 Selected
+    </button>
+    <button class="btn btn-primary" id="btnGenerate">
+      <span>▶</span> Generate
+    </button>
+    <button class="btn btn-stop" id="btnStop" disabled>
+      ⏹
+    </button>
+  </div>
+
+  <!-- Status -->
+  <div class="status-bar">
+    <div class="status-dot" id="statusDot"></div>
+    <div style="flex:1; overflow:hidden;">
+      <div class="status-text" id="statusText">Ready — select a model and generate</div>
+      <div class="progress-wrap" id="progressWrap">
+        <div class="progress-fill indeterminate" id="progressFill"></div>
+      </div>
+    </div>
+    <div class="waveform" id="waveform">
+      <div class="waveform-bar"></div>
+      <div class="waveform-bar"></div>
+      <div class="waveform-bar"></div>
+      <div class="waveform-bar"></div>
+      <div class="waveform-bar"></div>
+      <div class="waveform-bar"></div>
+      <div class="waveform-bar"></div>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

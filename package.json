@@ -1,0 +1,21 @@
+{
+  "name": "tts-studio-extension",
+  "version": "1.1.0",
+  "description": "Browser TTS with KittenTTS, Kokoro & Piper — 100% local, no server",
+  "type": "module",
+  "scripts": {
+    "dev": "vite build --watch --mode development",
+    "build": "vite build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src/"
+  },
+  "dependencies": {
+    "@mozilla/readability": "^0.5.0"
+  },
+  "devDependencies": {
+    "vite": "^6.0.0",
+    "vitest": "^3.0.0",
+    "eslint": "^9.0.0"
+  }
+}

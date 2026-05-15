@@ -1,0 +1,35 @@
+/* TTS Studio Sentence Highlighting Styles */
+
+.tts-studio-highlight {
+  background-color: rgba(255, 235, 59, 0.4) !important;
+  border-radius: 2px !important;
+  transition: background-color 0.2s ease !important;
+  box-shadow: 0 0 0 1px rgba(255, 235, 59, 0.2) !important;
+}
+
+/* Dark mode variant */
+@media (prefers-color-scheme: dark) {
+  .tts-studio-highlight {
+    background-color: rgba(255, 235, 59, 0.25) !important;
+  }
+}
+
+/* Underline style variant (alternative to background) */
+.tts-studio-highlight-underline {
+  text-decoration: underline !important;
+  text-decoration-color: #fbbf24 !important;
+  text-decoration-thickness: 3px !important;
+  text-underline-offset: 3px !important;
+}
+
+/* Box style variant */
+.tts-studio-highlight-box {
+  border: 2px solid #fbbf24 !important;
+  border-radius: 4px !important;
+  padding: 2px 4px !important;
+}
+
+/* Smooth scroll behavior for auto-scroll */
+html.tts-studio-scrolling {
+  scroll-behavior: smooth;
+}

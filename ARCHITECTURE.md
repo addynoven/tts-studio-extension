@@ -1,0 +1,317 @@
+# TTS Studio Extension — Architecture
+
+> Feature-based modular architecture. Each module is self-contained, testable, and owned by one concern. If something breaks, you know exactly which folder to check.
+
+---
+
+## Philosophy
+
+| Principle | How we apply it |
+|-----------|-----------------|
+| **Feature-based** | Each feature lives in its own folder with its own code, styles, and tests |
+| **Single Responsibility** | A module does one thing and does it well |
+| **Clear Boundaries** | `shared/` is the only place where cross-module code lives |
+| **No Circular Imports** | Background → Offscreen, Content → Background, Popup → Background. No loops. |
+| **Broken = Contained** | If audio breaks, check `src/offscreen/audio/`. If highlighting breaks, check `src/content/highlighter/`. |
+
+---
+
+## Folder Structure
+
+```
+extension/
+├── src/                          # ← You edit here
+│   ├── manifest.json             # Source manifest (Vite copies to dist/)
+│   │
+│   ├── background/               # Service Worker (MV3)
+│   │   ├── index.js              # Entry point — wires everything together
+│   │   ├── offscreen-manager.js  # Creates / maintains offscreen document
+│   │   ├── context-menus.js      # Right-click menu items
+│   │   ├── commands.js           # Keyboard shortcuts (Alt+Shift+R, etc.)
+│   │   └── state-manager.js      # chrome.storage.local helpers
+│   │
+│   ├── content/                  # Content Script (runs on every page)
+│   │   ├── index.js              # Entry point — message router
+│   │   ├── extractor/            # Article extraction from web pages
+│   │   │   ├── index.js          # extractArticle(), extractSelection()
+│   │   │   └── readability.js    # @mozilla/readability wrapper
+│   │   ├── sanitizer/            # Text cleaning before TTS
+│   │   │   └── smart-cleaner.js  # Strip URLs, code, markdown, emojis
+│   │   ├── highlighter/          # Sentence highlighting on the page
+│   │   │   ├── index.js          # highlightSentence(), scrollToSentence()
+│   │   │   └── styles.css        # .tts-studio-highlight styles
+│   │   └── inline-player/        # Floating mini-player injected on page
+│   │       ├── index.js          # injectPlayer(), updatePlayerState()
+│   │       ├── template.html     # Player DOM template
+│   │       └── styles.css        # Player styles (isolated)
+│   │
+│   ├── offscreen/                # Offscreen Document (DOM + WASM + Audio)
+│   │   ├── index.html            # HTML shell
+│   │   ├── index.js              # Entry point — message router
+│   │   ├── audio/                # Web Audio API playback
+│   │   │   ├── player.js         # playFloat32(), stopAudio()
+│   │   │   └── scheduler.js      # Gapless chunk scheduling
+│   │   ├── tts/                  # TTS engine implementations
+│   │   │   ├── index.js          # Route to correct engine
+│   │   │   ├── kitten.js         # KittenTTS ONNX inference
+│   │   │   ├── kokoro.js         # Kokoro ONNX inference
+│   │   │   └── piper.js          # Piper ONNX inference
+│   │   ├── cache/                # IndexedDB model caching
+│   │   │   └── indexeddb.js      # cacheGet(), cacheSet(), fetchAndCache()
+│   │   └── utils/                # Offscreen utilities
+│   │       └── phonemize.js      # Phonemizer wrapper
+│   │
+│   ├── popup/                    # Extension Popup
+│   │   ├── index.html            # Popup HTML shell
+│   │   ├── index.js              # Entry point
+│   │   ├── components/           # UI components
+│   │   │   ├── model-tabs.js     # Model switcher buttons
+│   │   │   ├── voice-selector.js # Voice dropdown with preview
+│   │   │   ├── speed-control.js  # Speed slider
+│   │   │   ├── status-bar.js     # Status dot + text
+│   │   │   └── waveform.js       # Animated waveform
+│   │   ├── tabs/                 # Popup tabs (future)
+│   │   │   ├── now-playing.js
+│   │   │   ├── recent-reads.js
+│   │   │   └── settings.js
+│   │   └── styles/
+│   │       └── main.css          # Popup styles
+│   │
+│   ├── options/                  # Settings Page (chrome://extensions/...)
+│   │   ├── index.html
+│   │   └── index.js
+│   │
+│   ├── shared/                   # Cross-cutting utilities (no feature logic!)
+│   │   ├── constants.js          # Voice lists, model configs, defaults
+│   │   ├── messaging.js          # Message types & protocol documentation
+│   │   ├── sentence-splitter.js  # splitIntoSentences()
+│   │   └── storage.js            # Storage schema & typed helpers
+│   │
+│   └── assets/                   # Static files (copied as-is to dist/)
+│       ├── icons/
+│       ├── models/
+│       └── lib/
+│
+├── tests/                        # Tests mirror src/ structure
+│   ├── background/
+│   ├── content/
+│   │   ├── extractor.test.js
+│   │   └── sanitizer.test.js
+│   ├── offscreen/
+│   │   └── tts/
+│   ├── popup/
+│   └── shared/
+│       └── sentence-splitter.test.js
+│
+├── dist/                         # ← Chrome loads this (generated by Vite)
+│   ├── manifest.json
+│   ├── background.js
+│   ├── content.js
+│   ├── offscreen/
+│   ├── popup/
+│   ├── options/
+│   ├── shared/
+│   └── assets/
+│
+├── package.json                  # npm deps + build scripts
+├── vite.config.js                # Vite bundler config
+└── README.md
+```
+
+---
+
+## Module Boundaries
+
+### What's ALLOWED inside a module
+- Its own code, styles, tests
+- Import from `shared/`
+- Import from Chrome APIs (`chrome.runtime`, `chrome.storage`, etc.)
+
+### What's NOT allowed
+- Import from another feature module (e.g. `popup/` cannot import from `content/`)
+- Import from `node_modules/` directly (use `shared/` wrappers if needed)
+
+### Message Passing (the ONLY way modules talk)
+
+```
+┌─────────────┐    chrome.runtime.sendMessage    ┌─────────────┐
+│   POPUP     │ ◄──────────────────────────────► │ BACKGROUND  │
+└─────────────┘                                  └─────────────┘
+       ▲                                                │
+       │         chrome.tabs.sendMessage                │
+       └────────────────────────────────────────────────┘
+                                                        │
+┌─────────────┐    chrome.runtime.sendMessage          │
+│   CONTENT   │ ◄──────────────────────────────────────┘
+└─────────────┘
+       │
+       │         chrome.runtime.sendMessage
+       ▼
+┌─────────────┐
+│  OFFSCREEN  │  ← WASM + Web Audio live here
+└─────────────┘
+```
+
+---
+
+## Message Protocol
+
+All messages use this shape:
+
+```javascript
+{
+  target: 'background' | 'popup' | 'content' | 'offscreen',
+  type: '<NOUN>_<VERB>',      // e.g. TTS_GENERATE, STATUS_PLAYING
+  ...payload
+}
+```
+
+### Message Types
+
+| Direction | Type | Payload | Purpose |
+|-----------|------|---------|---------|
+| Popup → Background | `ENSURE_OFFSCREEN` | — | Create offscreen doc if needed |
+| Popup → Offscreen | `TTS_GENERATE` | `{ text, model, voice, speed, useGPU }` | Start synthesis |
+| Popup → Offscreen | `TTS_STOP` | — | Stop playback |
+| Offscreen → Popup | `STATUS_MODEL_LOADING` | `{ model }` | Downloading model |
+| Offscreen → Popup | `STATUS_GENERATING` | — | Synthesizing |
+| Offscreen → Popup | `STATUS_PLAYING` | — | Audio playing |
+| Offscreen → Popup | `STATUS_DONE` | — | Finished |
+| Offscreen → Popup | `STATUS_ERROR` | `{ error }` | Error occurred |
+| Offscreen → Popup | `STATUS_PROGRESS` | `{ percent }` | Download progress |
+| Background → Content | `EXTRACT_ARTICLE` | — | Get article text |
+| Content → Background | `ARTICLE_EXTRACTED` | `{ title, text, sentences }` | Article data |
+| Background → Content | `HIGHLIGHT_SENTENCE` | `{ index }` | Highlight sentence N |
+| Background → Content | `CLEAR_HIGHLIGHT` | — | Remove all highlights |
+
+---
+
+## Storage Schema
+
+```javascript
+// chrome.storage.local
+{
+  settings: {
+    defaultModel: 'kokoro',
+    defaultVoice: 'af_heart',
+    defaultSpeed: 1.0,
+    sanitization: {
+      skipCodeBlocks: true,
+      skipUrls: true,
+      skipEmojis: true,
+      readCodeComments: false,
+      stripMarkdown: true
+    },
+    highlight: {
+      color: '#ffeb3b',
+      style: 'background',
+      opacity: 0.4,
+      autoScroll: true
+    },
+    executionProvider: 'webgpu'
+  },
+  
+  // Playback state (session)
+  playback: {
+    isPlaying: false,
+    currentSentence: 0,
+    totalSentences: 0,
+    url: '...'
+  },
+  
+  // History
+  history: [
+    { url, title, domain, date, lastSentence, totalSentences }
+  ]
+}
+```
+
+---
+
+## Build System
+
+### Why Vite?
+- Fast HMR for development
+- Can bundle ES modules for Chrome
+- Copies static assets automatically
+- Handles npm packages (`@mozilla/readability`)
+
+### Build Commands
+
+```bash
+cd extension
+npm run dev      # Watch mode, rebuild on change
+npm run build    # Production build → dist/
+npm run test     # Run tests
+```
+
+### Vite Config Key Points
+- `manifest.json` is the entry point for paths
+- `src/background/index.js` → `dist/background.js`
+- `src/content/index.js` → `dist/content.js`
+- `src/offscreen/` → `dist/offscreen/`
+- `src/popup/` → `dist/popup/`
+- `src/assets/` → `dist/assets/` (copied as-is)
+
+---
+
+## Adding a New Feature
+
+1. **Create folder** in the right module: `src/content/my-feature/`
+2. **Add entry** in the parent `index.js`
+3. **Add tests** in `tests/content/my-feature.test.js`
+4. **Update docs** in this file if it changes architecture
+
+Example: Adding "Read from here" context menu
+
+```javascript
+// src/background/context-menus.js
+chrome.contextMenus.create({
+  id: 'read-from-here',
+  title: '🔊 Read from here',
+  contexts: ['all']
+});
+
+// src/content/extractor/index.js
+export function extractFromElement(element) {
+  // Get all text after this element
+}
+```
+
+---
+
+## Ownership Map
+
+| Module | Owner | What it does |
+|--------|-------|-------------|
+| `background/` | Infrastructure | Message routing, shortcuts, menus, storage |
+| `content/extractor/` | Content Team | Readability.js, DOM parsing, text extraction |
+| `content/sanitizer/` | Content Team | Text cleaning, normalization |
+| `content/highlighter/` | UI Team | Page highlighting, auto-scroll |
+| `content/inline-player/` | UI Team | Floating player on page |
+| `offscreen/audio/` | Audio Team | Web Audio API, scheduling |
+| `offscreen/tts/kitten.js` | ML Team | Kitten ONNX model |
+| `offscreen/tts/kokoro.js` | ML Team | Kokoro ONNX model |
+| `offscreen/tts/piper.js` | ML Team | Piper ONNX model |
+| `popup/` | UI Team | Popup interface |
+| `options/` | UI Team | Settings page |
+| `shared/` | Everyone | Constants, utilities, protocols |
+
+---
+
+## Debugging Tips
+
+| Symptom | Check Module | File |
+|---------|-----------|------|
+| "Read article" does nothing | Content → Extractor | `src/content/extractor/index.js` |
+| Hearing "slash slash" | Content → Sanitizer | `src/content/sanitizer/smart-cleaner.js` |
+| Audio has gaps | Offscreen → Audio | `src/offscreen/audio/scheduler.js` |
+| Wrong voice plays | Offscreen → TTS | `src/offscreen/tts/<model>.js` |
+| Popup won't open | Popup | `src/popup/index.js` |
+| Keyboard shortcut fails | Background | `src/background/commands.js` |
+| Highlight not showing | Content → Highlighter | `src/content/highlighter/index.js` |
+| Model won't load | Offscreen → Cache | `src/offscreen/cache/indexeddb.js` |
+
+---
+
+*Last updated: 2026-05-15*

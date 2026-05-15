@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TTS Studio</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./styles/main.css" />
+</head>
+<body data-model="kokoro">
+
+  <!-- Header -->
+  <header class="header">
+    <div class="logo">
+      <div class="logo-icon" id="logoIcon">🎙️</div>
+      <span class="logo-text">TTS <span id="logoAccent">Studio</span></span>
+    </div>
+    <span class="header-badge">100% LOCAL</span>
+    <button id="btnDebug" title="Toggle debug panel" style="background:none;border:none;cursor:pointer;font-size:13px;opacity:0.5;padding:2px 4px;border-radius:4px;">🐛</button>
+  </header>
+
+  <!-- Model tabs -->
+  <nav class="model-tabs">
+    <button class="model-tab" data-model="kitten">
+      <span class="tab-emoji">😻</span>
+      <span class="tab-name">Kitten</span>
+      <span class="tab-size">24 MB · 8 voices</span>
+    </button>
+    <button class="model-tab active" data-model="kokoro">
+      <span class="tab-emoji">🌸</span>
+      <span class="tab-name">Kokoro</span>
+      <span class="tab-size">82 MB · 21 voices</span>
+    </button>
+    <button class="model-tab" data-model="piper">
+      <span class="tab-emoji">🃏</span>
+      <span class="tab-name">Piper</span>
+      <span class="tab-size">75 MB · 8 voices</span>
+    </button>
+  </nav>
+
+  <!-- Controls -->
+  <div class="controls">
+    <div class="control-row">
+      <span class="control-label">Voice</span>
+      <select id="voiceSelect"></select>
+    </div>
+    <div class="control-row">
+      <span class="control-label">Speed</span>
+      <div class="speed-wrap">
+        <input type="range" id="speedSlider" min="0.5" max="2.0" step="0.05" value="1.0" />
+        <span class="speed-val" id="speedVal">1.0×</span>
+      </div>
+    </div>
+    <div class="control-row">
+      <span class="control-label">GPU</span>
+      <div class="toggle-wrap">
+        <div class="toggle" id="gpuToggle" title="WebGPU acceleration (experimental)"></div>
+        <span class="toggle-label">WebGPU (experimental)</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Text input -->
+  <div class="textarea-wrap">
+    <textarea id="textInput" placeholder="Type or paste text to synthesize…" spellcheck="false"></textarea>
+    <div class="char-count"><span id="charCount">0</span> chars</div>
+  </div>
+
+  <!-- Actions -->
+  <div class="actions">
+    <button class="btn btn-ghost" id="btnSelected" title="Use selected text from active tab">📋 Selected</button>
+    <button class="btn btn-primary" id="btnGenerate"><span>▶</span> Generate</button>
+    <button class="btn btn-stop" id="btnStop" disabled>⏹</button>
+  </div>
+
+  <!-- Status -->
+  <div class="status-bar">
+    <div class="status-dot" id="statusDot"></div>
+    <div style="flex:1; overflow:hidden;">
+      <div class="status-text" id="statusText">Ready — select a model and generate</div>
+      <div class="progress-wrap" id="progressWrap">
+        <div class="progress-fill indeterminate" id="progressFill"></div>
+      </div>
+    </div>
+    <button class="btn-copy" id="btnCopyStatus" title="Copy status message">📋</button>
+    <div class="waveform" id="waveform">
+      <div class="waveform-bar"></div>
+      <div class="waveform-bar"></div>
+      <div class="waveform-bar"></div>
+      <div class="waveform-bar"></div>
+      <div class="waveform-bar"></div>
+      <div class="waveform-bar"></div>
+      <div class="waveform-bar"></div>
+    </div>
+  </div>
+
+  <script type="module" src="./index.js"></script>
+</body>
+</html>
