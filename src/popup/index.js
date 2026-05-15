@@ -53,9 +53,7 @@ async function init() {
     await populateVoices(model, saved.voice);
   });
 
-  if (saved.model) {
-    setActiveModel(saved.model);
-  }
+  setActiveModel(saved.model || 'piper');
 
   // Voices
   await populateVoices(getActiveModel(), saved.voice);

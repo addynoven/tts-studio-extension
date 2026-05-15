@@ -10,7 +10,8 @@ import {
   enqueuePause,
   resetScheduler,
   createAudioBuffer,
-  resumeAudioContext
+  resumeAudioContext,
+  setTimingCallback
 } from './audio/scheduler.js';
 import { loadModel, generateAudio } from './tts/index.js';
 import { splitIntoSentences, chunkSentences } from '../shared/sentence-splitter.js';
@@ -22,6 +23,29 @@ import { setPhase, setModuleStatus, setTimeline, updateTimelineItem, addTimeline
 function toPopup(type, extra = {}) {
   chrome.runtime.sendMessage({ target: 'popup', type, ...extra });
 }
+
+function toContent(type, extra = {}) {
+  chrome.runtime.sendMessage({ target: 'content', type, ...extra }).catch(() => {});
+}
+
+// ── Scheduler timing callback ──────────────────────────────────────────────
+// When a chunk starts playing, tell the content script to highlight it.
+// We send the chunk text so the content script can find it on the page.
+
+let chunkTexts = []; // Array of chunk texts, indexed by scheduler chunk index
+
+setTimingCallback(({ index, startTime, duration }) => {
+  const chunkText = chunkTexts[index];
+  if (!chunkText) return;
+
+  log('offscreen', 'log', `Chunk ${index} started playing, sending highlight`);
+  toContent(MSG.HIGHLIGHT_CHUNK, {
+    chunkIndex: index,
+    chunkText,
+    startTime,
+    duration
+  });
+});
 
 // ── Main message handler ───────────────────────────────────────────────────
 
@@ -45,46 +69,27 @@ chrome.runtime.onMessage.addListener((message) => {
     log('offscreen', 'log', 'Stop requested');
     setPhase('stopped');
     setModuleStatus('offscreen', 'idle');
+    chunkTexts = [];
     resetScheduler();
+    toContent(MSG.CLEAR_HIGHLIGHTS);
   }
 });
 
 // ── Pause detection ────────────────────────────────────────────────────────
 
-/**
- * Determine how long to pause after a chunk based on its ending punctuation.
- * @param {string} chunkText
- * @param {boolean} isLastChunk
- * @returns {number} pause duration in seconds
- */
 function getPauseDuration(chunkText, isLastChunk) {
   if (isLastChunk) return 0;
 
   const trimmed = chunkText.trimEnd();
 
-  // Paragraph break (text had blank line after this)
-  if (trimmed.endsWith('\n')) return 0.7;
-
-  // Strong sentence endings
-  if (/[.!?]+$/.test(trimmed)) return 0.4;
-
-  // Mid-sentence pauses (rarely at chunk boundary, but possible)
+  if (trimmed.endsWith('\n')) return 0.8;
+  if (/[.!?]+$/.test(trimmed)) return 0.5;
   if (/[,;:\-–—]+$/.test(trimmed)) return 0.25;
-
-  // Ellipsis
   if (trimmed.endsWith('...')) return 0.5;
 
-  // Default gap between chunks
   return 0.3;
 }
 
-/**
- * Check if there's a paragraph break (double newline) after a sentence
- * within the original text.
- * @param {string} originalText
- * @param {string} sentence
- * @returns {boolean}
- */
 function isFollowedByParagraph(originalText, sentence) {
   const idx = originalText.indexOf(sentence);
   if (idx === -1) return false;
@@ -103,6 +108,7 @@ async function handleGenerate({ text, model, voice, speed, useGPU }) {
   setPhase('start', { model });
   setModuleStatus('offscreen', 'busy');
 
+  chunkTexts = [];
   resetScheduler();
   toPopup(MSG.STATUS_GENERATING);
 
@@ -118,7 +124,6 @@ async function handleGenerate({ text, model, voice, speed, useGPU }) {
 
     await resumeAudioContext();
 
-    // Split text into sentence chunks for natural pauses
     setPhase('generating', { model, currentChunk: 0, totalChunks: 1 });
     const sentences = splitIntoSentences(text);
     log('offscreen', 'log', 'Split into', sentences.length, 'sentences');
@@ -132,12 +137,12 @@ async function handleGenerate({ text, model, voice, speed, useGPU }) {
       return;
     }
 
-    // For short text (single sentence), just synthesize directly
     if (sentences.length === 1) {
       log('offscreen', 'log', 'Single sentence — direct synthesis');
       addTimelineItem({ label: 'Synthesize text', status: 'running' });
       const { audio, sampleRate } = await generateAudio(model, text, voice, speed);
       const buffer = createAudioBuffer(new Float32Array(audio), sampleRate);
+      chunkTexts[0] = text;
       enqueueChunk(0, buffer);
       updateTimelineItem('Synthesize text', { status: 'done' });
       setPhase('done');
@@ -146,13 +151,25 @@ async function handleGenerate({ text, model, voice, speed, useGPU }) {
       return;
     }
 
-    // Chunk sentences into groups (~300-400 chars) to balance quality vs inference count
-    const chunks = chunkSentences(sentences, 350);
+    // Piper is fast enough for phrase-level synthesis, which gives natural pauses.
+    // We split Piper chunks at commas as well to prevent bullet-train speech.
+    let chunks;
+    if (model === 'piper') {
+      chunks = [];
+      for (const s of sentences) {
+        const phrases = s.replace(/([,;:\-–—])(\s+)/g, '$1\n').split('\n');
+        chunks.push(...phrases.map(p => p.trim()).filter(p => p.length > 0));
+      }
+    } else {
+      chunks = chunkSentences(sentences, 350);
+    }
     const totalChunks = chunks.length;
-    log('offscreen', 'log', 'Chunked into', totalChunks, 'chunks');
+    log('offscreen', 'log', 'Chunked into', totalChunks, model === 'piper' ? 'sentence-level chunks (Piper)' : 'chunks');
     chunks.forEach((c, i) => log('offscreen', 'log', `  Chunk[${i}] (${c.length} chars):`, c.slice(0, 60) + (c.length > 60 ? '...' : '')));
 
-    // Build timeline
+    // Store chunk texts for highlighting
+    chunks.forEach((c, i) => { chunkTexts[i * 2] = c; });
+
     const timeline = chunks.map((_, i) => ({
       label: `Synthesize chunk ${i + 1}/${totalChunks}`,
       status: 'pending'
@@ -161,8 +178,6 @@ async function handleGenerate({ text, model, voice, speed, useGPU }) {
     await setTimeline(timeline);
     await setQueueState({ totalChunks, completedChunks: 0, scheduledIndex: 0, queueSize: 0 });
 
-    // Synthesize chunks with limited concurrency (max 2 at a time)
-    // ONNX Runtime WASM backend can get overwhelmed by too many concurrent sessions
     let completedCount = 0;
     let errorCount = 0;
     let runningCount = 0;
@@ -198,7 +213,6 @@ async function handleGenerate({ text, model, voice, speed, useGPU }) {
           log('offscreen', 'error', `Chunk[${index}] failed:`, e.message);
           recordError('offscreen', `Chunk[${index}]: ${e.message}`);
           updateTimelineItem(label, { status: 'error' });
-          // Continue even if one chunk fails
           if (completedCount + errorCount >= totalChunks) {
             updateTimelineItem('Playback', { status: 'running' });
             setPhase('playing', { model, totalChunks });
@@ -213,8 +227,9 @@ async function handleGenerate({ text, model, voice, speed, useGPU }) {
     }
 
     async function synthesizeChunk(index, label) {
+      const chunkText = chunks[index];
       const startTime = performance.now();
-      const { audio, sampleRate } = await generateAudio(model, chunks[index], voice, speed);
+      const { audio, sampleRate } = await generateAudio(model, chunkText, voice, speed);
       const elapsed = Math.round(performance.now() - startTime);
       recordTiming(`chunk_${index}`, elapsed);
       log('offscreen', 'log', `Chunk[${index}] synthesized in ${elapsed}ms, ${audio.length} samples @ ${sampleRate}Hz`);
@@ -224,7 +239,6 @@ async function handleGenerate({ text, model, voice, speed, useGPU }) {
       enqueueChunk(index * 2, buffer);
       log('offscreen', 'log', `Chunk[${index}] enqueued at position ${index * 2}`);
 
-      // Enqueue a pause after this chunk (except for the last one)
       if (index < totalChunks - 1) {
         const isParaBreak = isFollowedByParagraph(text, chunks[index]);
         const pauseDur = isParaBreak ? 0.7 : getPauseDuration(chunks[index], false);
@@ -234,7 +248,6 @@ async function handleGenerate({ text, model, voice, speed, useGPU }) {
     }
 
     startNext();
-    // Wait for all to complete
     await new Promise((resolve) => {
       const check = setInterval(() => {
         if (completedCount + errorCount >= totalChunks) {

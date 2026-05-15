@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>TTS Studio — Model Speed Test</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 900px; margin: 40px auto; padding: 20px; background: #0f0f0f; color: #e0e0e0; }
+    h1 { color: #fbbf24; }
+    .model-card { background: #1a1a1a; border-radius: 8px; padding: 20px; margin: 16px 0; border-left: 4px solid; }
+    .model-card.kitten { border-color: #fbbf24; }
+    .model-card.piper { border-color: #22d3ee; }
+    .status { font-family: monospace; font-size: 13px; margin: 4px 0; }
+    .status.pending { color: #888; }
+    .status.running { color: #60a5fa; }
+    .status.done { color: #4ade80; }
+    .status.error { color: #f87171; }
+    .timing { font-family: monospace; font-size: 14px; margin-top: 8px; }
+    .timing span { color: #fbbf24; font-weight: bold; }
+    button { background: #2563eb; color: white; border: none; padding: 12px 24px; border-radius: 6px; cursor: pointer; font-size: 16px; margin-right: 10px; }
+    button:hover { background: #1d4ed8; }
+    button:disabled { background: #374151; cursor: not-allowed; }
+    #textInput { width: 100%; height: 120px; background: #1a1a1a; color: #e0e0e0; border: 1px solid #333; border-radius: 6px; padding: 12px; font-size: 14px; margin: 12px 0; }
+    .summary { background: #1a1a1a; border-radius: 8px; padding: 20px; margin-top: 20px; }
+    .summary h2 { margin-top: 0; color: #fbbf24; }
+    table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+    th, td { text-align: left; padding: 10px; border-bottom: 1px solid #333; }
+    th { color: #888; font-weight: normal; }
+    .winner { color: #4ade80; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <h1>🎙️ TTS Studio — Model Speed Test</h1>
+  <p>Runs all ONNX models on the same text. Measures model load time + inference time.</p>
+
+  <textarea id="textInput">Also important: I intentionally pushed you toward the architecture that minimizes complexity first instead of prematurely trying WASM/WebGPU. That's the first-principles move here: make the data flow work first, then optimize execution location later.</textarea>
+
+  <div>
+    <button id="btnRun" onclick="runAll()">▶ Run Speed Test</button>
+    <button id="btnClear" onclick="clearResults()">Clear</button>
+  </div>
+
+  <div id="results"></div>
+
+  <script type="module">
+    // ── Config ───────────────────────────────────────────────────────────────
+    const MODELS = {
+      kitten: {
+        name: 'KittenTTS',
+        color: 'kitten',
+        modelPath: '../tts-studio-extension/models/kitten-tts/model_quantized.onnx',
+        tokenizerPath: '../tts-studio-extension/models/kitten-tts/tokenizer.json',
+        voicesPath: '../tts-studio-extension/models/kitten-tts/voices.json',
+        voice: 'Bella',
+        sampleRate: 24000
+      },
+      piper: {
+        name: 'Piper',
+        color: 'piper',
+        modelPath: '../tts-studio-extension/models/piper/en_US-libritts_r-medium.onnx',
+        configPath: '../tts-studio-extension/models/piper/en_US-libritts_r-medium.onnx.json',
+        voice: '3922',
+        sampleRate: 22050
+      }
+    };
+
+    // ── Load ONNX Runtime ────────────────────────────────────────────────────
+    const ort = await import('../tts-studio-extension/lib/ort.min.mjs');
+    ort.env.wasm.wasmPaths = window.location.origin + '/tts-studio-extension/lib/';
+    ort.env.wasm.numThreads = 1;
+
+    // ── Phonemizer (from extension) ──────────────────────────────────────────
+    const phonemizerModule = await import('../tts-studio-extension/lib/phonemizer.mjs');
+    const _phonemizeRaw = phonemizerModule.phonemize;
+    async function phonemize(text, lang = 'en-us') {
+      const result = await _phonemizeRaw(text, lang);
+      if (typeof result === 'string') return result;
+      if (Array.isArray(result)) return result.join(' ');
+      if (result && typeof result === 'object') return result.text || result.phonemes || String(result);
+      return String(result || text);
+    }
+
+    // ── State ────────────────────────────────────────────────────────────────
+    const sessions = {};
+    const tokenizers = {};
+    const voiceData = {};
+
+    // ── UI helpers ───────────────────────────────────────────────────────────
+    function log(modelKey, cls, msg) {
+      const el = document.getElementById(`status-${modelKey}`);
+      if (el) {
+        el.className = `status ${cls}`;
+        el.textContent = msg;
+      }
+    }
+
+    function setTiming(modelKey, label, ms) {
+      const el = document.getElementById(`timing-${modelKey}`);
+      if (el) {
+        const display = typeof ms === 'number' ? `${ms.toFixed(0)}ms` : ms;
+        el.innerHTML += `<div>${label}: <span>${display}</span></div>`;
+      }
+    }
+
+    // ── Loaders ──────────────────────────────────────────────────────────────
+    async function loadModelFile(path) {
+      const res = await fetch(path);
+      if (!res.ok) throw new Error(`Failed to fetch ${path}: ${res.status}`);
+      return new Uint8Array(await res.arrayBuffer());
+    }
+
+    async function loadKitten() {
+      const cfg = MODELS.kitten;
+      const t0 = performance.now();
+
+      const [modelArr, tokenizerJson, voicesJson] = await Promise.all([
+        loadModelFile(cfg.modelPath),
+        fetch(cfg.tokenizerPath).then(r => r.json()),
+        fetch(cfg.voicesPath).then(r => r.json())
+      ]);
+
+      sessions.kitten = await ort.InferenceSession.create(modelArr, {
+        executionProviders: [{ name: 'wasm', simd: true }]
+      });
+      tokenizers.kitten = tokenizerJson;
+      voiceData.kitten = voicesJson;
+
+      return performance.now() - t0;
+    }
+
+    async function loadPiper() {
+      const cfg = MODELS.piper;
+      const t0 = performance.now();
+
+      const modelArr = await loadModelFile(cfg.modelPath);
+
+      sessions.piper = await ort.InferenceSession.create(modelArr, {
+        executionProviders: [{ name: 'wasm', simd: true }]
+      });
+
+      const config = await fetch(cfg.configPath).then(r => r.json());
+      tokenizers.piper = config;
+
+      return performance.now() - t0;
+    }
+
+    // ── Generators ───────────────────────────────────────────────────────────
+    async function generateKitten(text) {
+      const vocab = tokenizers.kitten.model?.vocab ?? tokenizers.kitten.vocab ?? {};
+      const rawPhonemes = await phonemize(text, 'en-us');
+      const tokens = [0, ...rawPhonemes.split('').map(p => vocab[p] ?? 0), 0];
+      if (tokens.length <= 2) throw new Error('Tokenization failed — empty phoneme sequence');
+
+      const voiceEmbedding = voiceData.kitten[MODELS.kitten.voice] ?? Object.values(voiceData.kitten)[0];
+      if (!voiceEmbedding) throw new Error(`Voice "${MODELS.kitten.voice}" not found`);
+
+      const speakerEmbedding = new Float32Array(voiceEmbedding[0]);
+      const inputIds = new BigInt64Array(tokens.map(id => BigInt(id)));
+
+      const result = await sessions.kitten.run({
+        'input_ids': new ort.Tensor('int64', inputIds, [1, inputIds.length]),
+        'style': new ort.Tensor('float32', speakerEmbedding, [1, speakerEmbedding.length]),
+        'speed': new ort.Tensor('float32', new Float32Array([1.0]), [1])
+      });
+
+      const audio = result.waveform?.data ?? result[Object.keys(result)[0]]?.data;
+      if (!audio) throw new Error('No audio output from KittenTTS model');
+      return audio;
+    }
+
+    async function generatePiper(text) {
+      const phonemes = await phonemize(text, 'en-us');
+      const config = tokenizers.piper;
+      const phonemeIdMap = config.phoneme_id_map || {};
+
+      const ids = [1]; // BOS
+      for (const ch of phonemes) {
+        const mapped = phonemeIdMap[ch];
+        if (Array.isArray(mapped)) ids.push(...mapped);
+        else if (mapped !== undefined) ids.push(mapped);
+      }
+      ids.push(2); // EOS
+
+      while (ids.length < 2) ids.push(0);
+
+      const inputIds = new BigInt64Array(ids.map(x => BigInt(x)));
+      const inputLength = new BigInt64Array([BigInt(ids.length)]);
+      const scales = new Float32Array([0.333, 1.0, 0.8]);
+
+      const speakerIdMap = config.speaker_id_map || {};
+      const speakerId = speakerIdMap[MODELS.piper.voice] ?? 0;
+
+      const result = await sessions.piper.run({
+        'input': new ort.Tensor('int64', inputIds, [1, ids.length]),
+        'input_lengths': new ort.Tensor('int64', inputLength, [1]),
+        'scales': new ort.Tensor('float32', scales, [3]),
+        'sid': new ort.Tensor('int64', new BigInt64Array([BigInt(speakerId)]), [1])
+      });
+
+      return result[Object.keys(result)[0]]?.data;
+    }
+
+    // ── Main test runner ─────────────────────────────────────────────────────
+    window.runAll = async function() {
+      const text = document.getElementById('textInput').value.trim();
+      if (!text) { alert('Enter some text first'); return; }
+
+      const btn = document.getElementById('btnRun');
+      btn.disabled = true;
+
+      const resultsDiv = document.getElementById('results');
+      resultsDiv.innerHTML = '';
+      for (const [key, cfg] of Object.entries(MODELS)) {
+        resultsDiv.innerHTML += `
+          <div class="model-card ${cfg.color}" id="card-${key}">
+            <h3>${cfg.name}</h3>
+            <div class="status pending" id="status-${key}">Pending…</div>
+            <div class="timing" id="timing-${key}"></div>
+          </div>
+        `;
+      }
+
+      const timings = {};
+
+      for (const key of ['kitten', 'piper']) {
+        try {
+          log(key, 'running', 'Loading model…');
+          const loadTime = await { kitten: loadKitten, piper: loadPiper }[key]();
+          setTiming(key, 'Model load', loadTime);
+          timings[key] = { load: loadTime };
+
+          log(key, 'running', 'Warm-up inference…');
+          await { kitten: generateKitten, piper: generatePiper }[key](text);
+
+          log(key, 'running', 'Running timed inference…');
+          const t0 = performance.now();
+          const audio = await { kitten: generateKitten, piper: generatePiper }[key](text);
+          const inferTime = performance.now() - t0;
+
+          const samples = audio?.length || 0;
+          const durationSec = samples / MODELS[key].sampleRate;
+          const rtf = durationSec / (inferTime / 1000);
+
+          setTiming(key, 'Inference', inferTime);
+          setTiming(key, 'Audio output', `${(durationSec).toFixed(2)}s @ ${MODELS[key].sampleRate}Hz`);
+          setTiming(key, 'RTF (real-time factor)', rtf.toFixed(2) + 'x');
+          timings[key].infer = inferTime;
+          timings[key].rtf = rtf;
+          timings[key].samples = samples;
+
+          log(key, 'done', `✓ Done — ${(durationSec).toFixed(1)}s audio in ${inferTime.toFixed(0)}ms (${rtf.toFixed(2)}x RTF)`);
+        } catch (e) {
+          console.error(key, e);
+          log(key, 'error', `✗ Error: ${e.message}`);
+          timings[key] = { error: e.message };
+        }
+      }
+
+      const sorted = Object.entries(timings)
+        .filter(([, v]) => !v.error)
+        .sort((a, b) => a[1].infer - b[1].infer);
+
+      const summary = document.createElement('div');
+      summary.className = 'summary';
+      summary.innerHTML = `
+        <h2>🏁 Results Summary</h2>
+        <table>
+          <tr><th>Model</th><th>Load</th><th>Inference</th><th>RTF</th><th>Rank</th></tr>
+          ${sorted.map(([k, v], i) => `
+            <tr>
+              <td><strong>${MODELS[k].name}</strong></td>
+              <td>${v.load.toFixed(0)}ms</td>
+              <td class="${i === 0 ? 'winner' : ''}">${v.infer.toFixed(0)}ms</td>
+              <td>${v.rtf.toFixed(2)}x</td>
+              <td>${i === 0 ? '🥇' : '🥈'}</td>
+            </tr>
+          `).join('')}
+        </table>
+        <p style="margin-top:12px;color:#888;font-size:13px;">
+          RTF = Real-Time Factor. Higher is faster. 1x = real-time.
+        </p>
+      `;
+      resultsDiv.appendChild(summary);
+
+      btn.disabled = false;
+    };
+
+    window.clearResults = function() {
+      document.getElementById('results').innerHTML = '';
+    };
+  </script>
+</body>
+</html>

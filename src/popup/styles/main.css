@@ -14,10 +14,9 @@
 
       /* Model accent colours */
       --kitten:   #fbbf24;
-      --kokoro:   #f472b6;
       --piper:    #22d3ee;
 
-      --accent:   var(--kokoro); /* changes with active model */
+      --accent:   var(--piper); /* changes with active model */
       --radius:   8px;
       --font:     'Syne', sans-serif;
       --mono:     'JetBrains Mono', monospace;
@@ -385,7 +384,7 @@
 
     /* ── Model-specific theming ───────────────────────────── */
     body[data-model="kitten"] { --accent: var(--kitten); }
-    body[data-model="kokoro"] { --accent: var(--kokoro); }
+
     body[data-model="piper"]  { --accent: var(--piper);  }
 
     /* ── Waveform visualizer ──────────────────────────────── */

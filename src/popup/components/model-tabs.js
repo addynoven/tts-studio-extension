@@ -28,7 +28,7 @@ export function initModelTabs(onSwitch) {
 
 /**
  * Set the active model visually.
- * @param {string} model - 'kitten' | 'kokoro' | 'piper'
+ * @param {string} model - 'kitten' | 'piper'
  */
 export function setActiveModel(model) {
   body.dataset.model = model;
@@ -41,5 +41,5 @@ export function setActiveModel(model) {
  * @returns {string}
  */
 export function getActiveModel() {
-  return body.dataset.model || 'kokoro';
+  return body.dataset.model || 'piper';
 }

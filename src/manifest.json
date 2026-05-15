@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "TTS Studio",
   "version": "1.1.0",
-  "description": "Browser TTS with KittenTTS, Kokoro & Piper — 100% local, no server",
+  "description": "Browser TTS with KittenTTS & Piper — 100% local, no server",
   "permissions": [
     "activeTab",
     "contextMenus",

@@ -54,7 +54,6 @@ extension/
 │   │   ├── tts/                  # TTS engine implementations
 │   │   │   ├── index.js          # Route to correct engine
 │   │   │   ├── kitten.js         # KittenTTS ONNX inference
-│   │   │   ├── kokoro.js         # Kokoro ONNX inference
 │   │   │   └── piper.js          # Piper ONNX inference
 │   │   ├── cache/                # IndexedDB model caching
 │   │   │   └── indexeddb.js      # cacheGet(), cacheSet(), fetchAndCache()
@@ -192,8 +191,8 @@ All messages use this shape:
 // chrome.storage.local
 {
   settings: {
-    defaultModel: 'kokoro',
-    defaultVoice: 'af_heart',
+    defaultModel: 'piper',
+    defaultVoice: '3922',
     defaultSpeed: 1.0,
     sanitization: {
       skipCodeBlocks: true,
@@ -291,7 +290,6 @@ export function extractFromElement(element) {
 | `content/inline-player/` | UI Team | Floating player on page |
 | `offscreen/audio/` | Audio Team | Web Audio API, scheduling |
 | `offscreen/tts/kitten.js` | ML Team | Kitten ONNX model |
-| `offscreen/tts/kokoro.js` | ML Team | Kokoro ONNX model |
 | `offscreen/tts/piper.js` | ML Team | Piper ONNX model |
 | `popup/` | UI Team | Popup interface |
 | `options/` | UI Team | Settings page |
