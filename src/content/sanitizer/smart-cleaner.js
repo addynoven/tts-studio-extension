@@ -46,15 +46,16 @@ export function sanitizeForTTS(text, options = {}) {
     cleaned = stripMarkdown(cleaned, opts.readCodeBlocks);
   }
 
-  // 5. Code comment stripping
-  if (opts.stripCodeComments) {
-    cleaned = stripCodeComments(cleaned);
-  }
-
-  // 6. URL replacement
+  // 5. URL replacement (must happen BEFORE code comment stripping,
+  // otherwise // in https:// gets eaten by the comment regex)
   if (opts.stripUrls) {
     cleaned = cleaned.replace(/https?:\/\/[^\s]+/g, ' [link] ');
     cleaned = cleaned.replace(/www\.[^\s]+/g, ' [link] ');
+  }
+
+  // 6. Code comment stripping
+  if (opts.stripCodeComments) {
+    cleaned = stripCodeComments(cleaned);
   }
 
   // 7. File path stripping
