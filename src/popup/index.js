@@ -9,6 +9,7 @@ import { populateVoices, getSelectedVoice, onVoiceChange } from './components/vo
 import { initSpeedControl, getSpeed } from './components/speed-control.js';
 import { setStatus, updateProgress, initCopyButton } from './components/status-bar.js';
 import { createDebugPanel, toggleDebugPanel, addLog } from './components/debug-panel.js';
+import { setModuleStatus, setPhase, recordError } from '../shared/state-tracker.js';
 
 // ── DOM refs ───────────────────────────────────────────────────────────────
 
@@ -24,10 +25,13 @@ const gpuToggle = document.getElementById('gpuToggle');
 // ── State ──────────────────────────────────────────────────────────────────
 
 let isGenerating = false;
+let generationTimeout = null;
+const GENERATION_TIMEOUT_MS = 60000; // 60s safety timeout
 
 // ── Init ───────────────────────────────────────────────────────────────────
 
 async function init() {
+  setModuleStatus('popup', 'active');
   // Create debug panel (hidden by default)
   createDebugPanel(body);
 
@@ -35,6 +39,9 @@ async function init() {
   btnDebug.addEventListener('click', () => {
     const visible = toggleDebugPanel();
     btnDebug.style.opacity = visible ? '1' : '0.5';
+  });
+  document.addEventListener('debug-panel-closed', () => {
+    btnDebug.style.opacity = '0.5';
   });
 
   // Restore saved settings
@@ -101,6 +108,17 @@ async function generate() {
   btnGenerate.disabled = true;
   btnStop.disabled = false;
   setStatus('loading', 'Loading model…');
+  setPhase('start');
+
+  // Safety timeout — if offscreen hangs/crashes, reset UI
+  generationTimeout = setTimeout(() => {
+    if (isGenerating) {
+      log('popup', 'warn', 'Generation timed out after ' + GENERATION_TIMEOUT_MS + 'ms');
+      resetButtons();
+      setStatus('error', 'Timed out — model may be stuck. Try again.');
+      setPhase('error', { message: 'Generation timeout' });
+    }
+  }, GENERATION_TIMEOUT_MS);
 
   chrome.runtime.sendMessage({
     target: 'offscreen',
@@ -117,6 +135,13 @@ function stop() {
   chrome.runtime.sendMessage({ target: 'offscreen', type: MSG.TTS_STOP });
   resetButtons();
   setStatus('idle', 'Stopped');
+}
+
+function clearGenerationTimeout() {
+  if (generationTimeout) {
+    clearTimeout(generationTimeout);
+    generationTimeout = null;
+  }
 }
 
 async function useSelectedText() {
@@ -140,6 +165,7 @@ function resetButtons() {
   isGenerating = false;
   btnGenerate.disabled = false;
   btnStop.disabled = true;
+  clearGenerationTimeout();
 }
 
 // ── Message handler ────────────────────────────────────────────────────────
@@ -167,11 +193,14 @@ function handleMessages(message) {
     case MSG.STATUS_DONE:
       resetButtons();
       setStatus('ready', 'Done ✓');
+      setPhase('done');
       setTimeout(() => setStatus('idle', 'Ready'), 3000);
       break;
     case MSG.STATUS_ERROR:
       resetButtons();
       setStatus('error', `Error: ${message.error}`);
+      recordError('popup', message.error);
+      setPhase('error', { message: message.error });
       break;
     case MSG.STATUS_PROGRESS:
       updateProgress(message.percent);

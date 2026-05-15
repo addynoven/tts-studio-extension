@@ -10,6 +10,7 @@
  */
 
 import { log } from '../../shared/logger.js';
+import { setQueueState } from '../../shared/state-tracker.js';
 
 let ctx = null;
 let nextStartTime = 0;
@@ -38,6 +39,7 @@ function getContext() {
 export function enqueueChunk(index, audioBuffer) {
   log('offscreen', 'log', `Scheduler: enqueueChunk(${index}), duration=${audioBuffer.duration.toFixed(3)}s`);
   queue.set(index, audioBuffer);
+  setQueueState({ queueSize: queue.size, scheduledIndex: nextPlayIndex });
   tryScheduleNext();
 }
 
@@ -50,6 +52,7 @@ export function enqueueChunk(index, audioBuffer) {
 export function enqueuePause(index, durationSeconds) {
   log('offscreen', 'log', `Scheduler: enqueuePause(${index}), duration=${(durationSeconds * 1000).toFixed(0)}ms`);
   queue.set(index, { __pause: true, duration: durationSeconds });
+  setQueueState({ queueSize: queue.size, scheduledIndex: nextPlayIndex });
   tryScheduleNext();
 }
 
@@ -101,6 +104,7 @@ function tryScheduleNext() {
     log('offscreen', 'log', `Scheduler: ${scheduledCount} items scheduled, queue size now ${queue.size}`);
   }
 
+  setQueueState({ queueSize: queue.size, scheduledIndex: nextPlayIndex });
   isScheduling = false;
 }
 
@@ -117,6 +121,7 @@ export function resetScheduler() {
   nextPlayIndex = 0;
   nextStartTime = 0;
   isScheduling = false;
+  setQueueState({ queueSize: 0, scheduledIndex: 0 });
 }
 
 /**
