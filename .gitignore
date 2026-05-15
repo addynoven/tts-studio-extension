@@ -46,4 +46,7 @@ src/assets/models/
 # Ignore generated lib files
 src/assets/lib/
 # Added by code-review-graph
-.code-review-graph/
+.code-review-graph/*
+
+#Added by Graphify
+graphify-out/*
