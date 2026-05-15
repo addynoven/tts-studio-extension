@@ -19,6 +19,7 @@ let nextStartTime = 0;
 const queue = new Map();        // index -> AudioBuffer | { __pause: true, duration }
 let nextPlayIndex = 0;          // which index should play next
 let isScheduling = false;       // prevent re-entrant scheduling
+let isPaused = false;           // pause/resume state
 
 // Timing callback — called when a chunk actually starts playing
 let timingCallback = null;
@@ -69,7 +70,7 @@ export function enqueuePause(index, durationSeconds) {
  * Called whenever a new chunk arrives OR when playback advances.
  */
 function tryScheduleNext() {
-  if (isScheduling) return;
+  if (isScheduling || isPaused) return;
   isScheduling = true;
 
   const context = getContext();
@@ -146,6 +147,29 @@ function tryScheduleNext() {
 }
 
 /**
+ * Pause the scheduler. Suspends audio but keeps queue and position.
+ */
+export function pauseScheduler() {
+  log('offscreen', 'log', 'Scheduler: pause called');
+  isPaused = true;
+  if (ctx && ctx.state === 'running') {
+    try { ctx.suspend(); } catch {}
+  }
+}
+
+/**
+ * Resume the scheduler. Restores audio and continues scheduling.
+ */
+export function resumeScheduler() {
+  log('offscreen', 'log', 'Scheduler: resume called');
+  isPaused = false;
+  if (ctx && ctx.state === 'suspended') {
+    try { ctx.resume(); } catch {}
+  }
+  tryScheduleNext();
+}
+
+/**
  * Reset the scheduler. Call when stopping playback or starting new article.
  */
 export function resetScheduler() {
@@ -162,6 +186,7 @@ export function resetScheduler() {
   nextPlayIndex = 0;
   nextStartTime = 0;
   isScheduling = false;
+  isPaused = false;
   setQueueState({ queueSize: 0, scheduledIndex: 0 });
 }
 

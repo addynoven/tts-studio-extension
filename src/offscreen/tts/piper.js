@@ -5,25 +5,13 @@
 import { MODEL_PATHS } from '../../shared/constants.js';
 import { fetchAndCache } from '../cache/indexeddb.js';
 import { phonemize } from '../utils/phonemize.js';
+import { loadORT, createSession } from '../utils/ort-loader.js';
 
-const LIB_BASE = chrome.runtime.getURL('assets/lib/');
-let ort = null;
 let piperSession = null;
 let piperConfig = null;
 
-async function loadORT() {
-  if (ort) return ort;
-  const mod = await import(LIB_BASE + 'ort.min.mjs');
-  ort = mod;
-  ort.env.wasm.wasmPaths = LIB_BASE;
-  ort.env.wasm.numThreads = 1;
-  return ort;
-}
-
-export async function loadPiper(onProgress) {
+export async function loadPiper(onProgress, useGPU = false) {
   if (piperSession) return;
-
-  await loadORT();
 
   const base = chrome.runtime.getURL('');
   const [modelBlob, configBlob] = await Promise.all([
@@ -34,15 +22,13 @@ export async function loadPiper(onProgress) {
   piperConfig = JSON.parse(await configBlob.text());
   const arr = new Uint8Array(await modelBlob.arrayBuffer());
 
-  piperSession = await ort.InferenceSession.create(arr, {
-    executionProviders: [{ name: 'wasm', simd: true }],
-    graphOptimizationLevel: 'all'
-  });
+  piperSession = await createSession(arr, useGPU);
 
   await new Promise(r => setTimeout(r, 100));
 }
 
 export async function generatePiper(text, speakerId = 'p335', speed = 1.0) {
+  const ort = await loadORT();
   const voice = piperConfig.espeak?.voice || 'en-us';
   const rawPhonemes = await phonemize(text, voice);
 

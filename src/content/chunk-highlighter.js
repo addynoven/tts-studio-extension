@@ -4,8 +4,7 @@
  * When a TTS chunk starts playing, we receive the chunk text from the offscreen
  * document and highlight the paragraph/element on the page that contains it.
  *
- * This uses fuzzy text matching because the chunk text has been sanitized
- * (URLs removed, markdown stripped, etc.) while the page text is raw.
+ * Uses pre-indexing + sequential search for accurate, fast matching.
  */
 
 const HIGHLIGHT_CLASS = 'tts-studio-highlight';
@@ -13,6 +12,12 @@ const STYLE_ID = 'tts-studio-chunk-highlight-styles';
 
 let currentHighlightEl = null;
 let highlightStyleEl = null;
+
+// ── Pre-indexed page state ─────────────────────────────────────────────────
+
+let pageIndex = [];       // [{ el, normalizedText }, ...] in DOM order
+let lastMatchIndex = -1;  // index in pageIndex of last highlighted element
+let indexBuilt = false;
 
 // ── Style injection ─────────────────────────────────────────────────────────
 
@@ -47,6 +52,29 @@ export function removeStyles() {
   }
 }
 
+// ── Index building ──────────────────────────────────────────────────────────
+
+const CANDIDATE_SELECTORS = [
+  'p', 'article p', '.article-body p', '[class*="content"] p',
+  'div[class*="text"]', 'section p', 'main p', 'li',
+  'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+  'blockquote', 'td', 'div'
+];
+
+function buildPageIndex() {
+  if (indexBuilt) return;
+  pageIndex = [];
+  const candidates = document.querySelectorAll(CANDIDATE_SELECTORS.join(', '));
+  for (const el of candidates) {
+    if (!isVisible(el)) continue;
+    const text = el.textContent || '';
+    if (text.length < 10) continue;
+    pageIndex.push({ el, text, normalized: normalizeText(text) });
+  }
+  indexBuilt = true;
+  lastMatchIndex = -1;
+}
+
 // ── Chunk highlighting ──────────────────────────────────────────────────────
 
 /**
@@ -56,12 +84,10 @@ export function removeStyles() {
 export function highlightChunk(chunkText) {
   if (!chunkText) return;
   injectStyles();
-
-  // Clear previous highlight
+  buildPageIndex();
   clearHighlight();
 
-  // Find the best matching element
-  const el = findBestMatchingElement(chunkText);
+  const el = findSequentialMatch(chunkText);
   if (!el) {
     console.warn('[TTS Studio] Could not find element for chunk:', chunkText.slice(0, 60));
     return;
@@ -70,7 +96,6 @@ export function highlightChunk(chunkText) {
   el.classList.add(HIGHLIGHT_CLASS);
   currentHighlightEl = el;
 
-  // Smooth scroll into view (only if not already visible)
   const rect = el.getBoundingClientRect();
   const isVisible = rect.top >= 80 && rect.bottom <= window.innerHeight - 80;
   if (!isVisible) {
@@ -79,74 +104,56 @@ export function highlightChunk(chunkText) {
 }
 
 /**
- * Clear the current highlight.
+ * Find the best match, searching sequentially from the last match.
+ * Strategy: substring match first, then fuzzy word match.
  */
-export function clearHighlight() {
-  if (currentHighlightEl) {
-    currentHighlightEl.classList.remove(HIGHLIGHT_CLASS);
-    currentHighlightEl = null;
-  }
-}
-
-/**
- * Clear all highlights and remove injected styles.
- */
-export function clearAll() {
-  clearHighlight();
-  document.querySelectorAll(`.${HIGHLIGHT_CLASS}`).forEach(el => {
-    el.classList.remove(HIGHLIGHT_CLASS);
-  });
-}
-
-// ── Text matching ───────────────────────────────────────────────────────────
-
-const CANDIDATE_SELECTORS = [
-  'p',
-  'article p',
-  '.article-body p',
-  '[class*="content"] p',
-  'div[class*="text"]',
-  'section p',
-  'main p',
-  'li',
-  'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-  'blockquote',
-  'td',
-  'div' // fallback
-];
-
-/**
- * Find the element on the page that best matches the chunk text.
- * Uses a multi-strategy approach for robustness.
- */
-function findBestMatchingElement(chunkText) {
+function findSequentialMatch(chunkText) {
   const normalizedChunk = normalizeText(chunkText);
-  const chunkWords = getSignificantWords(normalizedChunk);
+  if (!normalizedChunk) return null;
 
-  if (chunkWords.length === 0) return null;
+  // Start searching from just after the last match (TTS plays in order)
+  const startIdx = Math.max(0, lastMatchIndex);
 
-  const candidates = document.querySelectorAll(CANDIDATE_SELECTORS.join(', '));
-  let bestEl = null;
-  let bestScore = -1;
-
-  for (const el of candidates) {
-    // Skip invisible elements
-    if (!isVisible(el)) continue;
-
-    const elText = normalizeText(el.textContent || '');
-    if (elText.length < 10) continue; // Skip very short elements
-
-    const score = computeMatchScore(chunkWords, elText);
-    if (score > bestScore) {
-      bestScore = score;
-      bestEl = el;
+  // ── Phase 1: Substring match ────────────────────────────────────────────
+  for (let i = startIdx; i < pageIndex.length; i++) {
+    const entry = pageIndex[i];
+    if (entry.normalized.includes(normalizedChunk)) {
+      lastMatchIndex = i;
+      return entry.el;
+    }
+  }
+  // Fallback: search from beginning (in case user jumped back)
+  for (let i = 0; i < startIdx; i++) {
+    const entry = pageIndex[i];
+    if (entry.normalized.includes(normalizedChunk)) {
+      lastMatchIndex = i;
+      return entry.el;
     }
   }
 
-  // Require a minimum quality match
-  if (bestScore < 0.3) return null;
+  // ── Phase 2: Fuzzy word match ───────────────────────────────────────────
+  const chunkWords = getSignificantWords(normalizedChunk);
+  if (chunkWords.length === 0) return null;
 
-  return bestEl;
+  let bestEl = null;
+  let bestScore = -1;
+  let bestIdx = -1;
+
+  for (let i = startIdx; i < pageIndex.length; i++) {
+    const score = computeMatchScore(chunkWords, pageIndex[i].normalized);
+    if (score > bestScore) {
+      bestScore = score;
+      bestEl = pageIndex[i].el;
+      bestIdx = i;
+    }
+  }
+
+  if (bestScore >= 0.5) {
+    lastMatchIndex = bestIdx;
+    return bestEl;
+  }
+
+  return null;
 }
 
 /**
@@ -154,33 +161,43 @@ function findBestMatchingElement(chunkText) {
  * Returns a score from 0 to 1.
  */
 function computeMatchScore(chunkWords, elementText) {
-  // Strategy 1: direct substring match (highest score)
   const chunkJoined = chunkWords.join(' ');
-  if (elementText.includes(chunkJoined)) {
-    return 1.0;
-  }
 
-  // Strategy 2: find how many chunk words appear in the element
+  // How many chunk words appear in the element
   let matchedWords = 0;
   for (const word of chunkWords) {
-    if (elementText.includes(word)) {
-      matchedWords++;
-    }
+    if (elementText.includes(word)) matchedWords++;
   }
   const wordCoverage = matchedWords / chunkWords.length;
 
-  // Strategy 3: check if element text is a substring of the chunk (reverse)
+  // Reverse: how many element words appear in the chunk
   const elementWords = getSignificantWords(elementText);
   let reverseMatched = 0;
   for (const word of elementWords) {
-    if (chunkJoined.includes(word)) {
-      reverseMatched++;
-    }
+    if (chunkJoined.includes(word)) reverseMatched++;
   }
   const reverseCoverage = elementWords.length > 0 ? reverseMatched / elementWords.length : 0;
 
-  // Combine: prefer cases where most chunk words are found in the element
   return wordCoverage * 0.7 + reverseCoverage * 0.3;
+}
+
+// ── Clear ───────────────────────────────────────────────────────────────────
+
+export function clearHighlight() {
+  if (currentHighlightEl) {
+    currentHighlightEl.classList.remove(HIGHLIGHT_CLASS);
+    currentHighlightEl = null;
+  }
+}
+
+export function clearAll() {
+  clearHighlight();
+  document.querySelectorAll(`.${HIGHLIGHT_CLASS}`).forEach(el => {
+    el.classList.remove(HIGHLIGHT_CLASS);
+  });
+  pageIndex = [];
+  indexBuilt = false;
+  lastMatchIndex = -1;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -194,10 +211,7 @@ function normalizeText(text) {
 }
 
 function getSignificantWords(text) {
-  // Extract words of 3+ characters for matching
-  // (skip "the", "and", "a", etc. which create false matches)
   const words = text.split(/\s+/).filter(w => w.length >= 3);
-  // If no long words, fall back to all words
   return words.length > 0 ? words : text.split(/\s+/).filter(w => w.length > 0);
 }
 

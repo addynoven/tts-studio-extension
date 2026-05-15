@@ -9,12 +9,14 @@ import {
   enqueueChunk,
   enqueuePause,
   resetScheduler,
+  pauseScheduler,
+  resumeScheduler,
   createAudioBuffer,
   resumeAudioContext,
   setTimingCallback
 } from './audio/scheduler.js';
 import { loadModel, generateAudio } from './tts/index.js';
-import { splitIntoSentences, chunkSentences } from '../shared/sentence-splitter.js';
+import { splitIntoSentences } from '../shared/sentence-splitter.js';
 import { log } from '../shared/logger.js';
 import { setPhase, setModuleStatus, setTimeline, updateTimelineItem, addTimelineItem, setQueueState, recordError, recordTiming, resetPhase } from '../shared/state-tracker.js';
 
@@ -33,10 +35,17 @@ function toContent(type, extra = {}) {
 // We send the chunk text so the content script can find it on the page.
 
 let chunkTexts = []; // Array of chunk texts, indexed by scheduler chunk index
+let hasAnnouncedPlaying = false;
 
 setTimingCallback(({ index, startTime, duration }) => {
   const chunkText = chunkTexts[index];
   if (!chunkText) return;
+
+  // Announce "playing" the first time a chunk actually starts
+  if (!hasAnnouncedPlaying) {
+    hasAnnouncedPlaying = true;
+    toPopup(MSG.STATUS_PLAYING);
+  }
 
   log('offscreen', 'log', `Chunk ${index} started playing, sending highlight`);
   toContent(MSG.HIGHLIGHT_CHUNK, {
@@ -46,6 +55,25 @@ setTimingCallback(({ index, startTime, duration }) => {
     duration
   });
 });
+
+// ── Playback state for pause/resume ────────────────────────────────────────
+
+const pb = {
+  active: false,
+  isPaused: false,
+  sentences: [],
+  paraMap: null,
+  model: null,
+  voice: null,
+  speed: 1,
+  useGPU: false,
+  nextIndex: 0,
+  totalChunks: 0,
+  completedCount: 0,
+  errorCount: 0,
+  runningCount: 0,
+  resolveDone: null,
+};
 
 // ── Main message handler ───────────────────────────────────────────────────
 
@@ -65,11 +93,36 @@ chrome.runtime.onMessage.addListener((message) => {
     });
   }
 
+  if (message.type === MSG.TTS_PAUSE) {
+    log('offscreen', 'log', 'Pause requested');
+    if (!pb.isPaused && pb.active) {
+      pb.isPaused = true;
+      pauseScheduler();
+      setPhase('paused', { nextSentence: pb.nextIndex, total: pb.totalChunks });
+      toPopup(MSG.STATUS_PAUSED);
+    }
+  }
+
+  if (message.type === MSG.TTS_RESUME) {
+    log('offscreen', 'log', 'Resume requested');
+    if (pb.isPaused && pb.active) {
+      pb.isPaused = false;
+      resumeScheduler();
+      // Restart synthesis pump if it stalled
+      startSynthesisPump();
+      setPhase('playing', { model: pb.model, totalChunks: pb.totalChunks });
+      toPopup(MSG.STATUS_PLAYING);
+    }
+  }
+
   if (message.type === MSG.TTS_STOP) {
     log('offscreen', 'log', 'Stop requested');
+    pb.active = false;
+    pb.isPaused = false;
     setPhase('stopped');
     setModuleStatus('offscreen', 'idle');
     chunkTexts = [];
+    hasAnnouncedPlaying = false;
     resetScheduler();
     toContent(MSG.CLEAR_HIGHLIGHTS);
   }
@@ -77,32 +130,52 @@ chrome.runtime.onMessage.addListener((message) => {
 
 // ── Pause detection ────────────────────────────────────────────────────────
 
-function getPauseDuration(chunkText, isLastChunk) {
+function getPauseDuration(chunkText, isLastChunk, speed = 1.0) {
   if (isLastChunk) return 0;
 
   const trimmed = chunkText.trimEnd();
+  let pause = 0.3;
 
-  if (trimmed.endsWith('\n')) return 0.8;
-  if (/[.!?]+$/.test(trimmed)) return 0.5;
-  if (/[,;:\-–—]+$/.test(trimmed)) return 0.25;
-  if (trimmed.endsWith('...')) return 0.5;
+  if (trimmed.endsWith('\n')) pause = 0.8;
+  else if (/[.!?]+$/.test(trimmed)) pause = 0.5;
+  else if (/[,;:\-–—]+$/.test(trimmed)) pause = 0.25;
+  else if (trimmed.endsWith('...')) pause = 0.5;
 
-  return 0.3;
+  // Scale pauses by speed so faster playback still feels natural
+  return pause / speed;
 }
 
-function isFollowedByParagraph(originalText, sentence) {
-  const idx = originalText.indexOf(sentence);
-  if (idx === -1) return false;
-  const after = originalText.slice(idx + sentence.length, idx + sentence.length + 3);
-  return after.includes('\n\n');
+function buildParagraphMap(originalText, chunks) {
+  let offset = 0;
+  const map = new Map();
+  for (const chunk of chunks) {
+    const idx = originalText.indexOf(chunk, offset);
+    if (idx !== -1) {
+      const after = originalText.slice(idx + chunk.length, idx + chunk.length + 3);
+      map.set(chunk, after.includes('\n\n'));
+      offset = idx + chunk.length;
+    } else {
+      map.set(chunk, false);
+    }
+  }
+  return map;
 }
 
 // ── Generation handler ─────────────────────────────────────────────────────
 
 async function handleGenerate({ text, model, voice, speed, useGPU }) {
   log('offscreen', 'log', '=== GENERATE START ===');
-  log('offscreen', 'log', 'Model:', model, '| Voice:', voice, '| Speed:', speed);
+  log('offscreen', 'log', 'Model:', model, '| Voice:', voice, '| Speed:', speed, '| GPU:', useGPU);
   log('offscreen', 'log', 'Text length:', text.length, 'chars');
+
+  // Reset for fresh playback
+  pb.active = true;
+  pb.isPaused = false;
+  pb.completedCount = 0;
+  pb.errorCount = 0;
+  pb.runningCount = 0;
+  pb.nextIndex = 0;
+  hasAnnouncedPlaying = false;
 
   await resetPhase();
   setPhase('start', { model });
@@ -115,12 +188,12 @@ async function handleGenerate({ text, model, voice, speed, useGPU }) {
   const onProgress = (pct) => toPopup(MSG.STATUS_PROGRESS, { percent: pct });
 
   try {
-    setPhase('loading', { model });
-    addTimelineItem({ label: `Load model: ${model}`, status: 'running' });
+    setPhase('loading', { model, useGPU });
+    addTimelineItem({ label: `Load model: ${model}${useGPU ? ' (GPU)' : ''}`, status: 'running' });
     const loadStart = performance.now();
-    await loadModel(model, onProgress);
+    await loadModel(model, onProgress, useGPU);
     recordTiming('modelLoad', performance.now() - loadStart);
-    updateTimelineItem(`Load model: ${model}`, { status: 'done', durationMs: Math.round(performance.now() - loadStart) });
+    updateTimelineItem(`Load model: ${model}${useGPU ? ' (GPU)' : ''}`, { status: 'done', durationMs: Math.round(performance.now() - loadStart) });
 
     await resumeAudioContext();
 
@@ -151,20 +224,11 @@ async function handleGenerate({ text, model, voice, speed, useGPU }) {
       return;
     }
 
-    // Piper is fast enough for phrase-level synthesis, which gives natural pauses.
-    // We split Piper chunks at commas as well to prevent bullet-train speech.
-    let chunks;
-    if (model === 'piper') {
-      chunks = [];
-      for (const s of sentences) {
-        const phrases = s.replace(/([,;:\-–—])(\s+)/g, '$1\n').split('\n');
-        chunks.push(...phrases.map(p => p.trim()).filter(p => p.length > 0));
-      }
-    } else {
-      chunks = chunkSentences(sentences, 350);
-    }
+    // Sentence-level synthesis for natural pauses between sentences.
+    const chunks = sentences;
     const totalChunks = chunks.length;
-    log('offscreen', 'log', 'Chunked into', totalChunks, model === 'piper' ? 'sentence-level chunks (Piper)' : 'chunks');
+    const paraMap = buildParagraphMap(text, chunks);
+    log('offscreen', 'log', 'Chunked into', totalChunks, 'sentence-level chunks');
     chunks.forEach((c, i) => log('offscreen', 'log', `  Chunk[${i}] (${c.length} chars):`, c.slice(0, 60) + (c.length > 60 ? '...' : '')));
 
     // Store chunk texts for highlighting
@@ -178,84 +242,39 @@ async function handleGenerate({ text, model, voice, speed, useGPU }) {
     await setTimeline(timeline);
     await setQueueState({ totalChunks, completedChunks: 0, scheduledIndex: 0, queueSize: 0 });
 
-    let completedCount = 0;
-    let errorCount = 0;
-    let runningCount = 0;
-    let nextIndex = 0;
+    // Persist playback state for pause/resume
+    pb.sentences = sentences;
+    pb.paraMap = paraMap;
+    pb.model = model;
+    pb.voice = voice;
+    pb.speed = speed;
+    pb.useGPU = useGPU;
+    pb.totalChunks = totalChunks;
+    pb.nextIndex = 0;
+    pb.completedCount = 0;
+    pb.errorCount = 0;
+    pb.runningCount = 0;
 
-    function startNext() {
-      while (runningCount < 2 && nextIndex < totalChunks) {
-        const index = nextIndex++;
-        runningCount++;
-        const label = `Synthesize chunk ${index + 1}/${totalChunks}`;
-        updateTimelineItem(label, { status: 'running' });
-        setPhase('generating', { model, currentChunk: index, totalChunks });
-        log('offscreen', 'log', `Chunk[${index}] synthesizing...`);
+    // Start the synthesis pump
+    startSynthesisPump();
 
-        synthesizeChunk(index, label).then(() => {
-          runningCount--;
-          completedCount++;
-          setQueueState({ completedChunks: completedCount });
-          log('offscreen', 'log', `Progress: ${completedCount}/${totalChunks} chunks done`);
-
-          if (completedCount + errorCount >= totalChunks) {
-            updateTimelineItem('Playback', { status: 'running' });
-            setPhase('playing', { model, totalChunks });
-            toPopup(MSG.STATUS_DONE);
-            log('offscreen', 'log', '=== GENERATE DONE ===');
-            setPhase('done');
-          } else {
-            startNext();
-          }
-        }).catch((e) => {
-          runningCount--;
-          errorCount++;
-          log('offscreen', 'error', `Chunk[${index}] failed:`, e.message);
-          recordError('offscreen', `Chunk[${index}]: ${e.message}`);
-          updateTimelineItem(label, { status: 'error' });
-          if (completedCount + errorCount >= totalChunks) {
-            updateTimelineItem('Playback', { status: 'running' });
-            setPhase('playing', { model, totalChunks });
-            toPopup(MSG.STATUS_DONE);
-            log('offscreen', 'log', '=== GENERATE DONE (with errors) ===');
-            setPhase('done');
-          } else {
-            startNext();
-          }
-        });
-      }
-    }
-
-    async function synthesizeChunk(index, label) {
-      const chunkText = chunks[index];
-      const startTime = performance.now();
-      const { audio, sampleRate } = await generateAudio(model, chunkText, voice, speed);
-      const elapsed = Math.round(performance.now() - startTime);
-      recordTiming(`chunk_${index}`, elapsed);
-      log('offscreen', 'log', `Chunk[${index}] synthesized in ${elapsed}ms, ${audio.length} samples @ ${sampleRate}Hz`);
-      updateTimelineItem(label, { status: 'done', durationMs: elapsed });
-
-      const buffer = createAudioBuffer(new Float32Array(audio), sampleRate);
-      enqueueChunk(index * 2, buffer);
-      log('offscreen', 'log', `Chunk[${index}] enqueued at position ${index * 2}`);
-
-      if (index < totalChunks - 1) {
-        const isParaBreak = isFollowedByParagraph(text, chunks[index]);
-        const pauseDur = isParaBreak ? 0.7 : getPauseDuration(chunks[index], false);
-        enqueuePause(index * 2 + 1, pauseDur);
-        log('offscreen', 'log', `Pause[${index}] enqueued: ${(pauseDur * 1000).toFixed(0)}ms (para=${isParaBreak})`);
-      }
-    }
-
-    startNext();
+    // Wait until all chunks finish or playback is stopped
     await new Promise((resolve) => {
+      pb.resolveDone = resolve;
       const check = setInterval(() => {
-        if (completedCount + errorCount >= totalChunks) {
+        if (!pb.active || (pb.completedCount + pb.errorCount >= pb.totalChunks)) {
           clearInterval(check);
           resolve();
         }
       }, 100);
     });
+
+    if (pb.active) {
+      updateTimelineItem('Playback', { status: 'running' });
+      setPhase('done');
+      toPopup(MSG.STATUS_DONE);
+      log('offscreen', 'log', '=== GENERATE DONE ===');
+    }
 
   } catch (e) {
     log('offscreen', 'error', 'Top-level generate failed:', e.message);
@@ -263,6 +282,66 @@ async function handleGenerate({ text, model, voice, speed, useGPU }) {
     setPhase('error', { message: e.message });
     toPopup(MSG.STATUS_ERROR, { error: e.message });
     throw e;
+  } finally {
+    pb.active = false;
+    pb.isPaused = false;
+    if (pb.resolveDone) {
+      pb.resolveDone();
+      pb.resolveDone = null;
+    }
+  }
+}
+
+// ── Synthesis pump (can be paused/resumed) ─────────────────────────────────
+
+function startSynthesisPump() {
+  while (pb.runningCount < 2 && pb.nextIndex < pb.totalChunks && !pb.isPaused && pb.active) {
+    const index = pb.nextIndex++;
+    pb.runningCount++;
+    const label = `Synthesize chunk ${index + 1}/${pb.totalChunks}`;
+    updateTimelineItem(label, { status: 'running' });
+    setPhase('generating', { model: pb.model, currentChunk: index, totalChunks: pb.totalChunks });
+    log('offscreen', 'log', `Chunk[${index}] synthesizing...`);
+
+    synthesizeChunk(index, label).then(() => {
+      pb.runningCount--;
+      pb.completedCount++;
+      setQueueState({ completedChunks: pb.completedCount });
+      log('offscreen', 'log', `Progress: ${pb.completedCount}/${pb.totalChunks} chunks done`);
+      if (pb.active && !pb.isPaused) {
+        startSynthesisPump();
+      }
+    }).catch((e) => {
+      pb.runningCount--;
+      pb.errorCount++;
+      log('offscreen', 'error', `Chunk[${index}] failed:`, e.message);
+      recordError('offscreen', `Chunk[${index}]: ${e.message}`);
+      updateTimelineItem(label, { status: 'error' });
+      if (pb.active && !pb.isPaused) {
+        startSynthesisPump();
+      }
+    });
+  }
+}
+
+async function synthesizeChunk(index, label) {
+  const chunkText = pb.sentences[index];
+  const startTime = performance.now();
+  const { audio, sampleRate } = await generateAudio(pb.model, chunkText, pb.voice, pb.speed);
+  const elapsed = Math.round(performance.now() - startTime);
+  recordTiming(`chunk_${index}`, elapsed);
+  log('offscreen', 'log', `Chunk[${index}] synthesized in ${elapsed}ms, ${audio.length} samples @ ${sampleRate}Hz`);
+  updateTimelineItem(label, { status: 'done', durationMs: elapsed });
+
+  const buffer = createAudioBuffer(new Float32Array(audio), sampleRate);
+  enqueueChunk(index * 2, buffer);
+  log('offscreen', 'log', `Chunk[${index}] enqueued at position ${index * 2}`);
+
+  if (index < pb.totalChunks - 1) {
+    const isParaBreak = pb.paraMap.get(pb.sentences[index]) ?? false;
+    const pauseDur = isParaBreak ? 0.8 / pb.speed : getPauseDuration(pb.sentences[index], false, pb.speed);
+    enqueuePause(index * 2 + 1, pauseDur);
+    log('offscreen', 'log', `Pause[${index}] enqueued: ${(pauseDur * 1000).toFixed(0)}ms (para=${isParaBreak})`);
   }
 }
 
