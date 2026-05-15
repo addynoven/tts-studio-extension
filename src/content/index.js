@@ -1,11 +1,11 @@
 /**
  * Content Script — Entry Point
- * Runs on every page. Handles extraction, highlighting, and inline player.
+ * Runs on every page. Handles extraction and chunk-level sentence highlighting.
  */
 
 import { MSG } from '../shared/constants.js';
 import { extractArticle, extractSelection } from './extractor/index.js';
-import { highlightSentence, clearHighlights, highlightAtOffset } from './highlighter/index.js';
+import { highlightChunk, clearHighlight, clearAll } from './chunk-highlighter.js';
 import { log } from '../shared/logger.js';
 
 log('content', 'log', 'Content script loaded on', location.hostname);
@@ -16,19 +16,19 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   switch (message.type) {
     case MSG.GET_SELECTION:
       handleGetSelection(sendResponse);
-      return true; // async response
+      return true;
 
     case MSG.EXTRACT_ARTICLE:
       handleExtractArticle(sendResponse);
       return true;
 
-    case MSG.HIGHLIGHT_SENTENCE:
-      highlightSentence(message.index);
+    case MSG.HIGHLIGHT_CHUNK:
+      handleHighlightChunk(message);
       sendResponse({ ok: true });
       return false;
 
-    case MSG.CLEAR_HIGHLIGHT:
-      clearHighlights();
+    case MSG.CLEAR_HIGHLIGHTS:
+      clearAll();
       sendResponse({ ok: true });
       return false;
 
@@ -49,7 +49,6 @@ function handleExtractArticle(sendResponse) {
   const article = extractArticle();
   log('content', 'log', 'Article extracted:', article?.title, '|', article?.sentences?.length, 'sentences');
 
-  // Send to background for TTS generation
   if (article && article.text) {
     chrome.runtime.sendMessage({
       target: 'background',
@@ -59,4 +58,9 @@ function handleExtractArticle(sendResponse) {
   }
 
   sendResponse(article);
+}
+
+function handleHighlightChunk({ chunkText }) {
+  if (!chunkText) return;
+  highlightChunk(chunkText);
 }

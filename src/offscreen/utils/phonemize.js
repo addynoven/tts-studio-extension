@@ -38,16 +38,4 @@ export async function phonemize(text, lang = 'en-us') {
   return String(result || text);
 }
 
-/**
- * Post-process Kokoro phonemes.
- * @param {string} phonemes
- * @returns {string}
- */
-export function postProcessKokoro(phonemes) {
-  return phonemes
-    .replace(/ʲ/g, 'j')
-    .replace(/r/g, 'ɹ')
-    .replace(/x/g, 'k')
-    .replace(/ɬ/g, 'l')
-    .trim();
-}
+

@@ -23,10 +23,10 @@ describe('logger', () => {
   });
 
   it('serializes objects in message', async () => {
-    log('popup', 'log', { model: 'kokoro' });
+    log('popup', 'log', { model: 'piper' });
     await flushLogs();
     const stored = getStored(STORAGE_KEY);
-    expect(stored[0].message).toBe('{"model":"kokoro"}');
+    expect(stored[0].message).toBe('{"model":"piper"}');
   });
 
   it('stores multiple logs up to max', async () => {

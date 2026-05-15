@@ -75,6 +75,18 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return false;
   }
 
+  // Offscreen → content script (word timing, highlighting)
+  if (message.target === 'content') {
+    log('bg', 'log', 'Forwarding to content:', message.type);
+    chrome.tabs.query({ active: true, currentWindow: true }).then((tabs) => {
+      const tab = tabs[0];
+      if (tab?.id) {
+        chrome.tabs.sendMessage(tab.id, { ...message, _forwarded: true }).catch(() => {});
+      }
+    });
+    return false;
+  }
+
   // Content script → background
   if (message.type === MSG.ARTICLE_EXTRACTED) {
     log('bg', 'log', 'Article extracted:', message.article?.title);

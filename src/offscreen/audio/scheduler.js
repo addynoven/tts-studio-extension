@@ -20,6 +20,14 @@ const queue = new Map();        // index -> AudioBuffer | { __pause: true, durat
 let nextPlayIndex = 0;          // which index should play next
 let isScheduling = false;       // prevent re-entrant scheduling
 
+// Timing callback — called when a chunk actually starts playing
+let timingCallback = null;
+const activeTimeouts = new Set();
+
+export function setTimingCallback(fn) {
+  timingCallback = fn;
+}
+
 function getContext() {
   if (!ctx) {
     ctx = new AudioContext();
@@ -95,6 +103,35 @@ function tryScheduleNext() {
     source.start(nextStartTime);
     const endTime = nextStartTime + buffer.duration;
     log('offscreen', 'log', `Scheduler: chunk ${nextPlayIndex} scheduled @ ${nextStartTime.toFixed(3)}s → ${endTime.toFixed(3)}s`);
+
+    // Notify about timing
+    if (timingCallback) {
+      const delayMs = Math.max(0, (nextStartTime - context.currentTime) * 1000);
+      const idx = nextPlayIndex;
+      const start = nextStartTime;
+      const dur = buffer.duration;
+      
+      if (delayMs <= 0) {
+        timingCallback({
+          index: idx,
+          startTime: start,
+          duration: dur
+        });
+      } else {
+        const timerId = setTimeout(() => {
+          activeTimeouts.delete(timerId);
+          if (timingCallback) {
+            timingCallback({
+              index: idx,
+              startTime: start,
+              duration: dur
+            });
+          }
+        }, delayMs);
+        activeTimeouts.add(timerId);
+      }
+    }
+
     nextStartTime = endTime;
     nextPlayIndex++;
     scheduledCount++;
@@ -117,6 +154,10 @@ export function resetScheduler() {
     try { ctx.close(); } catch {}
     ctx = null;
   }
+  for (const timerId of activeTimeouts) {
+    clearTimeout(timerId);
+  }
+  activeTimeouts.clear();
   queue.clear();
   nextPlayIndex = 0;
   nextStartTime = 0;

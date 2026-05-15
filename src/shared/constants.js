@@ -16,37 +16,14 @@ export const VOICES = {
     { id: 'Kiki',   label: 'Kiki   (F)' },
     { id: 'Leo',    label: 'Leo    (M)' }
   ],
-  kokoro: [
-    { id: 'af',         label: 'af — Default Female' },
-    { id: 'af_alloy',   label: 'Alloy — AF' },
-    { id: 'af_aoede',   label: 'Aoede — AF' },
-    { id: 'af_bella',   label: 'Bella — AF (bright)' },
-    { id: 'af_heart',   label: 'Heart — AF (warm)' },
-    { id: 'af_jessica', label: 'Jessica — AF' },
-    { id: 'af_kore',    label: 'Kore — AF' },
-    { id: 'af_nicole',  label: 'Nicole — AF (smooth)' },
-    { id: 'af_nova',    label: 'Nova — AF' },
-    { id: 'af_river',   label: 'River — AF' },
-    { id: 'af_sarah',   label: 'Sarah — AF (clear)' },
-    { id: 'af_sky',     label: 'Sky — AF (airy)' },
-    { id: 'am_adam',    label: 'Adam — AM (deep)' },
-    { id: 'am_echo',    label: 'Echo — AM' },
-    { id: 'am_eric',    label: 'Eric — AM' },
-    { id: 'am_fenrir',  label: 'Fenrir — AM' },
-    { id: 'am_liam',    label: 'Liam — AM' },
-    { id: 'am_michael', label: 'Michael — AM (rich)' },
-    { id: 'am_onyx',    label: 'Onyx — AM' },
-    { id: 'am_puck',    label: 'Puck — AM' },
-    { id: 'am_santa',   label: 'Santa — AM' }
-  ],
   piper: [] // Loaded dynamically from Piper config
 };
 
 // ── Model defaults ─────────────────────────────────────────────────────────
 
 export const DEFAULTS = {
-  model: 'kokoro',
-  voice: 'af_heart',
+  model: 'piper',
+  voice: '3922',
   speed: 1.0,
   useGPU: false
 };
@@ -54,23 +31,20 @@ export const DEFAULTS = {
 export function defaultVoiceForModel(model) {
   const defaults = {
     kitten: 'Bella',
-    kokoro: 'af_heart',
     piper: '3922' // libritts_r speaker id
   };
-  return defaults[model] || 'af_heart';
+  return defaults[model] || '3922';
 }
 
 // ── Model accent colors (for UI theming) ───────────────────────────────────
 
 export const MODEL_COLORS = {
   kitten: '#fbbf24',
-  kokoro: '#f472b6',
   piper: '#22d3ee'
 };
 
 export const MODEL_LABELS = {
   kitten: 'Kitten',
-  kokoro: 'Studio',
   piper: 'Piper'
 };
 
@@ -94,11 +68,6 @@ export const MODEL_PATHS = {
   piper: {
     onnx: 'assets/models/piper/en_US-libritts_r-medium.onnx',
     config: 'assets/models/piper/en_US-libritts_r-medium.onnx.json'
-  },
-  kokoro: {
-    onnx: 'assets/models/kokoro/model_quantized.onnx',
-    tokenizer: 'assets/models/kokoro/tokenizer.json',
-    voicesDir: 'assets/models/kokoro/voices/'
   }
 };
 
@@ -132,6 +101,8 @@ export const MSG = {
   EXTRACT_ARTICLE: 'EXTRACT_ARTICLE',
   ARTICLE_EXTRACTED: 'ARTICLE_EXTRACTED',
   GET_SELECTION: 'GET_SELECTION',
-  HIGHLIGHT_SENTENCE: 'HIGHLIGHT_SENTENCE',
-  CLEAR_HIGHLIGHT: 'CLEAR_HIGHLIGHT'
+
+  // Offscreen → Content (via background) — chunk-level highlighting
+  HIGHLIGHT_CHUNK: 'HIGHLIGHT_CHUNK',
+  CLEAR_HIGHLIGHTS: 'CLEAR_HIGHLIGHTS'
 };
