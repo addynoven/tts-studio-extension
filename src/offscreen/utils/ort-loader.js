@@ -3,7 +3,8 @@
  * Both TTS engines import from here to avoid loading ORT twice.
  */
 
-const LIB_BASE = chrome.runtime.getURL('assets/lib/');
+import { getExtensionUrl } from '../../shared/extension-url.js';
+const LIB_BASE = getExtensionUrl('assets/lib/');
 let ort = null;
 
 /**

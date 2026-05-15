@@ -3,6 +3,7 @@
  */
 
 import { MODEL_PATHS } from '../../shared/constants.js';
+import { getExtensionUrl } from '../../shared/extension-url.js';
 import { fetchAndCache } from '../cache/indexeddb.js';
 import { phonemize } from '../utils/phonemize.js';
 import { loadORT, createSession } from '../utils/ort-loader.js';
@@ -13,7 +14,7 @@ let piperConfig = null;
 export async function loadPiper(onProgress, useGPU = false) {
   if (piperSession) return;
 
-  const base = chrome.runtime.getURL('');
+  const base = getExtensionUrl('');
   const [modelBlob, configBlob] = await Promise.all([
     fetchAndCache(base + MODEL_PATHS.piper.onnx, 'piper-onnx', onProgress),
     fetchAndCache(base + MODEL_PATHS.piper.config, 'piper-config', null)
@@ -50,7 +51,7 @@ export async function generatePiper(text, speakerId = 'p335', speed = 1.0) {
   });
 
   const audio = result.output?.data ?? result[Object.keys(result)[0]]?.data;
-  return { audio: new Float32Array(audio), sampleRate };
+  return { audio: new Float32Array(audio), sampleRate, playbackRate: 1.0 };
 }
 
 function piperTextToIds(phonemeText, config) {

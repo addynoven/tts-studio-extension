@@ -123,6 +123,7 @@ export default defineConfig({
         offscreen: resolve(__dirname, 'src/offscreen/index.html'),
         popup: resolve(__dirname, 'src/popup/index.html'),
         options: resolve(__dirname, 'src/options/index.html'),
+        'tts-worker': resolve(__dirname, 'src/offscreen/tts/tts-worker.js'),
       },
       output: {
         entryFileNames: (chunk) => {

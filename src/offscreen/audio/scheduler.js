@@ -24,6 +24,7 @@ let isPaused = false;           // pause/resume state
 // Timing callback — called when a chunk actually starts playing
 let timingCallback = null;
 const activeTimeouts = new Set();
+const activeSources = new Set();     // AudioBufferSourceNodes currently scheduled/playing
 
 export function setTimingCallback(fn) {
   timingCallback = fn;
@@ -44,10 +45,11 @@ function getContext() {
  *
  * @param {number} index - Sentence/chunk index (0-based, in text order)
  * @param {AudioBuffer} audioBuffer
+ * @param {number} [playbackRate=1.0] - Speed multiplier for this chunk
  */
-export function enqueueChunk(index, audioBuffer) {
-  log('offscreen', 'log', `Scheduler: enqueueChunk(${index}), duration=${audioBuffer.duration.toFixed(3)}s`);
-  queue.set(index, audioBuffer);
+export function enqueueChunk(index, audioBuffer, playbackRate = 1.0) {
+  log('offscreen', 'log', `Scheduler: enqueueChunk(${index}), duration=${audioBuffer.duration.toFixed(3)}s, rate=${playbackRate.toFixed(2)}`);
+  queue.set(index, { __chunk: true, buffer: audioBuffer, playbackRate });
   setQueueState({ queueSize: queue.size, scheduledIndex: nextPlayIndex });
   tryScheduleNext();
 }
@@ -90,9 +92,13 @@ function tryScheduleNext() {
       continue;
     }
 
-    const buffer = entry;
+    const buffer = entry.buffer;
+    const playbackRate = entry.playbackRate ?? 1.0;
     const source = context.createBufferSource();
     source.buffer = buffer;
+    if (playbackRate !== 1.0) {
+      source.playbackRate.value = playbackRate;
+    }
     source.connect(context.destination);
 
     // Ensure we don't schedule in the past
@@ -102,7 +108,9 @@ function tryScheduleNext() {
     }
 
     source.start(nextStartTime);
-    const endTime = nextStartTime + buffer.duration;
+    activeSources.add(source);
+    source.onended = () => activeSources.delete(source);
+    const endTime = nextStartTime + (buffer.duration / playbackRate);
     log('offscreen', 'log', `Scheduler: chunk ${nextPlayIndex} scheduled @ ${nextStartTime.toFixed(3)}s → ${endTime.toFixed(3)}s`);
 
     // Notify about timing
@@ -147,6 +155,34 @@ function tryScheduleNext() {
 }
 
 /**
+ * Skip to a specific chunk index. Stops current audio and repositions playback.
+ * @param {number} chunkIndex - Target scheduler chunk index (0, 2, 4...)
+ */
+export function skipToChunk(chunkIndex) {
+  log('offscreen', 'log', `Scheduler: skipToChunk(${chunkIndex})`);
+
+  // Stop all active sources
+  for (const src of activeSources) {
+    try { src.stop(); } catch {}
+  }
+  activeSources.clear();
+
+  // Clear pending timing callbacks
+  for (const timerId of activeTimeouts) {
+    clearTimeout(timerId);
+  }
+  activeTimeouts.clear();
+
+  // Reset playback position
+  const context = getContext();
+  nextStartTime = context.currentTime;
+  nextPlayIndex = chunkIndex;
+
+  setQueueState({ queueSize: queue.size, scheduledIndex: nextPlayIndex });
+  tryScheduleNext();
+}
+
+/**
  * Pause the scheduler. Suspends audio but keeps queue and position.
  */
 export function pauseScheduler() {
@@ -182,12 +218,24 @@ export function resetScheduler() {
     clearTimeout(timerId);
   }
   activeTimeouts.clear();
+  for (const src of activeSources) {
+    try { src.stop(); } catch {}
+  }
+  activeSources.clear();
   queue.clear();
   nextPlayIndex = 0;
   nextStartTime = 0;
   isScheduling = false;
   isPaused = false;
   setQueueState({ queueSize: 0, scheduledIndex: 0 });
+}
+
+/**
+ * Get the current playback position.
+ * @returns {number}
+ */
+export function getNextPlayIndex() {
+  return nextPlayIndex;
 }
 
 /**

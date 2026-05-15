@@ -5,7 +5,8 @@
 
 import { LIB_PATHS } from '../../shared/constants.js';
 
-const LIB_BASE = chrome.runtime.getURL('assets/lib/');
+import { getExtensionUrl } from '../../shared/extension-url.js';
+const LIB_BASE = getExtensionUrl('assets/lib/');
 const PHONEMIZER_URL = LIB_BASE + 'phonemizer.mjs';
 
 let phonemizerModule = null;
