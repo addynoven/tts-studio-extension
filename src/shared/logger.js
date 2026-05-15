@@ -50,19 +50,26 @@ export function log(source, level, ...args) {
   }
 }
 
+// Serialize storage writes to prevent race conditions when multiple
+// log() calls happen in rapid succession.
+let storeQueue = Promise.resolve();
+
 /**
  * Store a log entry in session storage (so popup can read it when reopened).
  */
 async function storeLog(entry) {
-  try {
-    const { [STORAGE_KEY]: existing } = await chrome.storage.session.get(STORAGE_KEY);
-    const logs = existing || [];
-    logs.push(entry);
-    if (logs.length > MAX_LOGS) logs.shift();
-    await chrome.storage.session.set({ [STORAGE_KEY]: logs });
-  } catch {
-    // Storage may not be available
-  }
+  storeQueue = storeQueue.then(async () => {
+    try {
+      const { [STORAGE_KEY]: existing } = await chrome.storage.session.get(STORAGE_KEY);
+      const logs = existing || [];
+      logs.push(entry);
+      if (logs.length > MAX_LOGS) logs.shift();
+      await chrome.storage.session.set({ [STORAGE_KEY]: logs });
+    } catch {
+      // Storage may not be available
+    }
+  });
+  return storeQueue;
 }
 
 /**
