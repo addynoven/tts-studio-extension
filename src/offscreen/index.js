@@ -11,10 +11,74 @@ import {
   resetScheduler,
   pauseScheduler,
   resumeScheduler,
+  skipToChunk,
+  getNextPlayIndex,
   createAudioBuffer,
   resumeAudioContext,
   setTimingCallback
 } from './audio/scheduler.js';
+// ── Web Worker for ONNX inference ──────────────────────────────────────────
+// Isolates heavy WASM compute from the offscreen main thread.
+
+const WORKER_URL = chrome.runtime.getURL('tts-worker/tts-worker.js');
+let worker = null;
+let nextRequestId = 0;
+const pending = new Map();
+
+function getWorker() {
+  if (!worker) {
+    worker = new Worker(WORKER_URL, { type: 'module' });
+    worker.onmessage = (e) => {
+      const { id, type, error, ...result } = e.data;
+      const p = pending.get(id);
+      if (!p) return;
+      pending.delete(id);
+      if (type === 'error') {
+        p.reject(new Error(error || 'Worker error'));
+      } else {
+        p.resolve(result);
+      }
+    };
+    worker.onerror = (e) => {
+      log('offscreen', 'error', 'Worker error:', e.message);
+    };
+  }
+  return worker;
+}
+
+function postToWorker(type, payload) {
+  return new Promise((resolve, reject) => {
+    const id = ++nextRequestId;
+    pending.set(id, { resolve, reject });
+    getWorker().postMessage({ id, type, ...payload });
+  });
+}
+
+async function loadViaWorker(model, useGPU) {
+  // Piper is fast enough to run on main thread; only Kitten benefits from Worker isolation
+  if (model === 'piper') {
+    await loadModel(model, null, useGPU);
+    return;
+  }
+  try {
+    await postToWorker('load', { model, useGPU });
+  } catch (e) {
+    log('offscreen', 'warn', 'Worker load failed, falling back to direct:', e.message);
+    await loadModel(model, null, useGPU);
+  }
+}
+
+async function inferViaWorker(model, text, voice, speed) {
+  if (model === 'piper') {
+    return await generateAudio(model, text, voice, speed);
+  }
+  try {
+    return await postToWorker('infer', { model, text, voice, speed });
+  } catch (e) {
+    log('offscreen', 'warn', 'Worker infer failed, falling back to direct:', e.message);
+    return await generateAudio(model, text, voice, speed);
+  }
+}
 import { loadModel, generateAudio } from './tts/index.js';
 import { splitIntoSentences } from '../shared/sentence-splitter.js';
 import { log } from '../shared/logger.js';
@@ -115,6 +179,26 @@ chrome.runtime.onMessage.addListener((message) => {
     }
   }
 
+  if (message.type === MSG.TTS_SKIP_FORWARD) {
+    if (pb.active && pb.sentences.length > 0) {
+      const currentSentence = Math.floor(getNextPlayIndex() / 2);
+      const target = Math.min(currentSentence + 1, pb.totalChunks - 1);
+      log('offscreen', 'log', `Skip forward: ${currentSentence} → ${target}`);
+      skipToChunk(target * 2);
+      toContent(MSG.HIGHLIGHT_CHUNK, { chunkIndex: target * 2, chunkText: pb.sentences[target] });
+    }
+  }
+
+  if (message.type === MSG.TTS_SKIP_BACKWARD) {
+    if (pb.active && pb.sentences.length > 0) {
+      const currentSentence = Math.floor(getNextPlayIndex() / 2);
+      const target = Math.max(currentSentence - 1, 0);
+      log('offscreen', 'log', `Skip backward: ${currentSentence} → ${target}`);
+      skipToChunk(target * 2);
+      toContent(MSG.HIGHLIGHT_CHUNK, { chunkIndex: target * 2, chunkText: pb.sentences[target] });
+    }
+  }
+
   if (message.type === MSG.TTS_STOP) {
     log('offscreen', 'log', 'Stop requested');
     pb.active = false;
@@ -191,7 +275,7 @@ async function handleGenerate({ text, model, voice, speed, useGPU }) {
     setPhase('loading', { model, useGPU });
     addTimelineItem({ label: `Load model: ${model}${useGPU ? ' (GPU)' : ''}`, status: 'running' });
     const loadStart = performance.now();
-    await loadModel(model, onProgress, useGPU);
+    await postToWorker('load', { model, useGPU });
     recordTiming('modelLoad', performance.now() - loadStart);
     updateTimelineItem(`Load model: ${model}${useGPU ? ' (GPU)' : ''}`, { status: 'done', durationMs: Math.round(performance.now() - loadStart) });
 
@@ -213,10 +297,10 @@ async function handleGenerate({ text, model, voice, speed, useGPU }) {
     if (sentences.length === 1) {
       log('offscreen', 'log', 'Single sentence — direct synthesis');
       addTimelineItem({ label: 'Synthesize text', status: 'running' });
-      const { audio, sampleRate } = await generateAudio(model, text, voice, speed);
+      const { audio, sampleRate, playbackRate } = await inferViaWorker(model, text, voice, speed);
       const buffer = createAudioBuffer(new Float32Array(audio), sampleRate);
       chunkTexts[0] = text;
-      enqueueChunk(0, buffer);
+      enqueueChunk(0, buffer, playbackRate);
       updateTimelineItem('Synthesize text', { status: 'done' });
       setPhase('done');
       toPopup(MSG.STATUS_DONE);
@@ -261,12 +345,6 @@ async function handleGenerate({ text, model, voice, speed, useGPU }) {
     // Wait until all chunks finish or playback is stopped
     await new Promise((resolve) => {
       pb.resolveDone = resolve;
-      const check = setInterval(() => {
-        if (!pb.active || (pb.completedCount + pb.errorCount >= pb.totalChunks)) {
-          clearInterval(check);
-          resolve();
-        }
-      }, 100);
     });
 
     if (pb.active) {
@@ -294,8 +372,15 @@ async function handleGenerate({ text, model, voice, speed, useGPU }) {
 
 // ── Synthesis pump (can be paused/resumed) ─────────────────────────────────
 
+function checkDone() {
+  if (pb.resolveDone && pb.completedCount + pb.errorCount >= pb.totalChunks) {
+    pb.resolveDone();
+    pb.resolveDone = null;
+  }
+}
+
 function startSynthesisPump() {
-  while (pb.runningCount < 2 && pb.nextIndex < pb.totalChunks && !pb.isPaused && pb.active) {
+  while (pb.runningCount < 1 && pb.nextIndex < pb.totalChunks && !pb.isPaused && pb.active) {
     const index = pb.nextIndex++;
     pb.runningCount++;
     const label = `Synthesize chunk ${index + 1}/${pb.totalChunks}`;
@@ -308,6 +393,7 @@ function startSynthesisPump() {
       pb.completedCount++;
       setQueueState({ completedChunks: pb.completedCount });
       log('offscreen', 'log', `Progress: ${pb.completedCount}/${pb.totalChunks} chunks done`);
+      checkDone();
       if (pb.active && !pb.isPaused) {
         startSynthesisPump();
       }
@@ -317,6 +403,7 @@ function startSynthesisPump() {
       log('offscreen', 'error', `Chunk[${index}] failed:`, e.message);
       recordError('offscreen', `Chunk[${index}]: ${e.message}`);
       updateTimelineItem(label, { status: 'error' });
+      checkDone();
       if (pb.active && !pb.isPaused) {
         startSynthesisPump();
       }
@@ -327,14 +414,14 @@ function startSynthesisPump() {
 async function synthesizeChunk(index, label) {
   const chunkText = pb.sentences[index];
   const startTime = performance.now();
-  const { audio, sampleRate } = await generateAudio(pb.model, chunkText, pb.voice, pb.speed);
+  const { audio, sampleRate, playbackRate } = await inferViaWorker(pb.model, chunkText, pb.voice, pb.speed);
   const elapsed = Math.round(performance.now() - startTime);
   recordTiming(`chunk_${index}`, elapsed);
   log('offscreen', 'log', `Chunk[${index}] synthesized in ${elapsed}ms, ${audio.length} samples @ ${sampleRate}Hz`);
   updateTimelineItem(label, { status: 'done', durationMs: elapsed });
 
   const buffer = createAudioBuffer(new Float32Array(audio), sampleRate);
-  enqueueChunk(index * 2, buffer);
+  enqueueChunk(index * 2, buffer, playbackRate);
   log('offscreen', 'log', `Chunk[${index}] enqueued at position ${index * 2}`);
 
   if (index < pb.totalChunks - 1) {

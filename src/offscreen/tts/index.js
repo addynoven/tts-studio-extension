@@ -26,13 +26,13 @@ export async function loadModel(model, onProgress, useGPU = false) {
  * @param {string} text
  * @param {string} voice
  * @param {number} speed
- * @returns {Promise<{audio: Float32Array, sampleRate: number}>}
+ * @returns {Promise<{audio: Float32Array, sampleRate: number, playbackRate?: number}>}
  */
 export async function generateAudio(model, text, voice, speed) {
   switch (model) {
     case 'kitten': {
-      const audio = await generateKitten(text, voice, speed);
-      return { audio, sampleRate: 24000 };
+      const result = await generateKitten(text, voice, speed);
+      return { audio: result.audio, sampleRate: 24000, playbackRate: result.playbackRate };
     }
     case 'piper': {
       return await generatePiper(text, voice, speed);

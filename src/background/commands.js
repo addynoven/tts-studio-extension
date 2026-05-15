@@ -36,11 +36,13 @@ export function initCommands() {
         break;
 
       case 'skip-forward':
-        // TODO: Phase 2 — Sentence-level navigation
+        await ensureOffscreen();
+        chrome.runtime.sendMessage({ target: 'offscreen', type: MSG.TTS_SKIP_FORWARD });
         break;
 
       case 'skip-backward':
-        // TODO: Phase 2 — Sentence-level navigation
+        await ensureOffscreen();
+        chrome.runtime.sendMessage({ target: 'offscreen', type: MSG.TTS_SKIP_BACKWARD });
         break;
     }
   });
