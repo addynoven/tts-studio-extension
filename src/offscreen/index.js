@@ -143,6 +143,8 @@ const pb = {
 
 chrome.runtime.onMessage.addListener((message) => {
   if (message.target !== 'offscreen') return;
+  // Skip forwarded duplicates — background router re-sends with _forwarded flag
+  if (message._forwarded) return;
 
   if (message.type === MSG.TTS_GENERATE) {
     setModuleStatus('offscreen', 'busy');
@@ -275,7 +277,7 @@ async function handleGenerate({ text, model, voice, speed, useGPU }) {
     setPhase('loading', { model, useGPU });
     addTimelineItem({ label: `Load model: ${model}${useGPU ? ' (GPU)' : ''}`, status: 'running' });
     const loadStart = performance.now();
-    await postToWorker('load', { model, useGPU });
+    await loadViaWorker(model, useGPU);
     recordTiming('modelLoad', performance.now() - loadStart);
     updateTimelineItem(`Load model: ${model}${useGPU ? ' (GPU)' : ''}`, { status: 'done', durationMs: Math.round(performance.now() - loadStart) });
 

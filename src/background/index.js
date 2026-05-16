@@ -7,13 +7,14 @@
  * popup ↔ offscreen ↔ content scripts.
  */
 
-import { MSG } from '../shared/constants.js';
+import { MSG, defaultVoiceForModel } from '../shared/constants.js';
 import { ensureOffscreen } from './offscreen-manager.js';
 import { initContextMenus } from './context-menus.js';
 import { initCommands } from './commands.js';
 import { initStateSync } from './state-manager.js';
 import { log } from '../shared/logger.js';
 import { setModuleStatus, recordError } from '../shared/state-tracker.js';
+import { getSettings } from '../shared/storage.js';
 
 // ── Initialize modules ─────────────────────────────────────────────────────
 
@@ -87,9 +88,39 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return false;
   }
 
-  // Content script → background
+  // Content script → background (article extracted, now trigger TTS)
   if (message.type === MSG.ARTICLE_EXTRACTED) {
+    console.log('[TTS Studio] BG received ARTICLE_EXTRACTED:', message.article?.title);
     log('bg', 'log', 'Article extracted:', message.article?.title);
+    const article = message.article;
+    if (article?.text) {
+      getSettings().then((settings) => {
+        const model = settings.defaultModel;
+        const voice = settings.defaultVoice || defaultVoiceForModel(model);
+        const speed = settings.defaultSpeed;
+        const useGPU = settings.executionProvider === 'webgpu';
+        console.log('[TTS Studio] BG forwarding TTS_GENERATE. model:', model, '| voice:', voice, '| textLen:', article.text.length);
+        ensureOffscreen().then(() => {
+          chrome.runtime.sendMessage({
+            target: 'offscreen',
+            type: MSG.TTS_GENERATE,
+            text: article.text,
+            model,
+            voice,
+            speed: Number(speed),
+            useGPU
+          }).then(() => {
+            console.log('[TTS Studio] BG forwarded TTS_GENERATE to offscreen');
+          }).catch((e) => {
+            log('bg', 'error', 'Failed to forward TTS_GENERATE:', e.message);
+          });
+        }).catch((e) => {
+          log('bg', 'error', 'ensureOffscreen failed for article TTS:', e.message);
+        });
+      });
+    } else {
+      console.warn('[TTS Studio] BG received ARTICLE_EXTRACTED but no text');
+    }
     return false;
   }
 });
