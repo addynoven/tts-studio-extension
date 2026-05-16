@@ -15,6 +15,7 @@ import { sanitizeForTTS } from '../sanitizer/smart-cleaner.js';
 const BLOCK_TAGS = new Set([
   'P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6',
   'LI', 'BLOCKQUOTE', 'TD', 'TH', 'FIGCAPTION', 'DT', 'DD'
+  // NOTE: PRE is intentionally excluded — code blocks are unreadable by TTS
 ]);
 
 const SKIP_TAGS = new Set([
@@ -42,21 +43,81 @@ export function extractMappedArticle(sanitizerOpts = {}) {
   walkBlocks(root, blocks);
 
   // Step 3: Filter out noise (too short, duplicate, nav-like)
+  // Also drop "See also", "References", "External links", "Notes" sections
+  const STOP_SECTIONS = /see also|references|external links|notes|further reading|bibliography|citations|help improve|contribute|page information|metadata/i;
+  let stopReached = false;
+
   const filtered = blocks.filter(b => {
     const text = b.rawText.trim();
+    const isHeading = /^H[1-6]$/.test(b.el.tagName);
+
+    // Stop collecting once we hit a bibliography/nav section heading
+    if (isHeading && STOP_SECTIONS.test(text)) {
+      stopReached = true;
+      return false;
+    }
+    if (stopReached) return false;
+
+    // Always keep headings, even if they are short like "Algorithm" or "Example"
+    if (isHeading && text.length > 0) return true;
+
+    // Filter out very short lines of regular text
     if (text.length < 15) return false;
+
     // Skip elements that look like navigation/buttons
     if (text.split(/\s+/).length < 3) return false;
+
     return true;
   });
 
-  // Step 4: Sanitize each block's text for TTS while keeping rawText for matching
+  // Step 4: Sanitize each block's HTML for TTS
   for (const block of filtered) {
-    block.ttsText = sanitizeForTTS(block.rawText, sanitizerOpts).trim();
+    // We pass the innerHTML to the smart cleaner so it can strip <script>, <style>, and other tags
+    // properly before they get flattened.
+    block.ttsText = sanitizeForTTS(block.html, sanitizerOpts).trim();
   }
 
-  // Remove blocks where sanitization emptied the text
-  const final = filtered.filter(b => b.ttsText.length > 5);
+  // Add pause markers after headings so TTS doesn't run them into the next paragraph
+  for (const b of filtered) {
+    if (/^H[1-6]$/.test(b.el.tagName)) {
+      const t = b.ttsText.trim();
+      if (t.length > 0 && !/[.!?]$/.test(t)) {
+        b.ttsText = t + '.';
+      }
+    }
+  }
+
+  // Remove blocks where sanitization emptied the text or left math fragments
+  const final = filtered.filter(b => {
+    const t = b.ttsText.trim();
+    const isHeading = /^H[1-6]$/.test(b.el.tagName);
+
+    // Always keep headings
+    if (isHeading && t.length > 0) return true;
+
+    // Keep paragraphs that contain formulas but still have narrative text.
+    // Technical papers often have equations mid-paragraph; the surrounding text
+    // is valuable even if the sentence structure is unconventional.
+    const hasFormula = t.includes('[formula]');
+    const letters = (t.match(/[a-zA-Z]/g) || []).length;
+    if (hasFormula && t.length >= 30 && letters >= t.length * 0.15) return true;
+
+    if (t.length < 25) return false;
+    // Skip lines that are mostly punctuation / whitespace after math stripping
+    if (letters < t.length * 0.3) return false;
+    // Skip sentence fragments caused by inline math removal.
+    // Any paragraph that doesn't end with proper sentence punctuation is likely broken.
+    const lastRealChar = t.replace(/\s+$/, '').slice(-1);
+    if (!/[.!?]/.test(lastRealChar)) return false;
+    // Skip parenthetical fragments: "(where x is y)." or "[note 1]."
+    if (/^[\(\[]/.test(t) && t.length < 60) return false;
+    // Skip fragments that start with a lowercase letter ("from which...", "where...")
+    const firstRealChar = t.replace(/^\s+/, '')[0];
+    if (firstRealChar && /[a-z]/.test(firstRealChar)) return false;
+    // Skip dangling code intros when the code block itself was stripped
+    if (/\b(Octave|Matlab|Python|implementation|code snippet)\b/i.test(t) && t.length < 90) return false;
+    return true;
+  });
 
   const fullText = final.map(b => b.ttsText).join('\n');
 
@@ -136,14 +197,28 @@ function walkBlocks(root, blocks) {
   for (const child of root.children) {
     if (SKIP_TAGS.has(child.tagName)) continue;
 
+    // Skip common boilerplate classes/IDs
+    const className = child.className || '';
+    const id = child.id || '';
+    if (typeof className === 'string' && (
+      className.includes('navbox') ||
+      className.includes('reflist') ||
+      className.includes('infobox') ||
+      className.includes('toc') ||
+      className.includes('metadata') ||
+      className.includes('article-footer')
+    )) continue;
+    if (id === 'catlinks' || id === 'toc' || id === 'references' || id === 'feedback') continue;
+
     // Check visibility
     const style = window.getComputedStyle(child);
     if (style.display === 'none' || style.visibility === 'hidden') continue;
 
     if (BLOCK_TAGS.has(child.tagName)) {
       const text = child.textContent || '';
+      const html = child.innerHTML || '';
       if (text.trim()) {
-        blocks.push({ el: child, rawText: text });
+        blocks.push({ el: child, rawText: text, html });
       }
     } else {
       // Recurse into non-block containers (divs, sections, etc.)

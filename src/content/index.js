@@ -13,12 +13,17 @@ import { extractSelection } from './extractor/index.js';
 import { extractMappedArticle } from './extractor/dom-mapper.js';
 import { highlightSentence, highlightByIndex, setMappedBlocks, clearHighlight, clearAll } from './highlighter.js';
 import { log } from '../shared/logger.js';
+import { initMathSpeech } from './sanitizer/math-speech.js';
 
 // Guard against double-init (manifest injection + programmatic injection)
 if (!window.__ttsStudioLoaded) {
   window.__ttsStudioLoaded = true;
 
   log('content', 'log', 'Content script loaded on', location.hostname);
+
+  // Initialise math verbalisation engine (SRE + LaTeX fallback).
+  // Fire-and-forget: if it fails we still have the LaTeX verbalizer.
+  initMathSpeech().catch(() => {});
 
   // ── Article block mapping ──────────────────────────────────────────────────
 
@@ -29,6 +34,12 @@ if (!window.__ttsStudioLoaded) {
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     switch (message.type) {
+      case '__TTS_PING__':
+      case '__TTS_PING':
+      case '__PING__':
+        sendResponse({ ok: true });
+        return false;
+
       case MSG.GET_SELECTION:
         handleGetSelection(sendResponse);
         return true;

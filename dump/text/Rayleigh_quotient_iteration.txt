@@ -1,0 +1,50 @@
+TITLE: Rayleigh quotient iteration - Wikipedia
+TOTAL CHARS: 1873
+TOTAL BLOCKS: 9
+========================================================================
+
+--- FULL COMBINED TEXT ---
+
+Rayleigh quotient iteration is an eigenvalue algorithm which extends the idea of the inverse iteration by using the Rayleigh quotient to obtain increasingly accurate eigenvalue estimates.
+Rayleigh quotient iteration is an iterative method, that is, it delivers a sequence of approximate solutions that converges to a true solution in the limit. Very rapid convergence is guaranteed and no more than a few iterations are needed in practice to obtain a reasonable approximation. The Rayleigh quotient iteration algorithm converges cubically for Hermitian or symmetric matrices, given an initial vector that is sufficiently close to an eigenvector of the matrix that is being analyzed.
+Algorithm.
+The algorithm is very similar to inverse iteration, but replaces the estimated eigenvalue at the end of each iteration with the Rayleigh quotient. Begin by choosing some value mu sub 0 as an initial eigenvalue guess for the Hermitian matrix A. An initial vector b sub 0 must also be supplied as initial eigenvector guess.
+Calculate the next approximation of the eigenvector b sub i plus 1 by [formula] where I is the identity matrix,
+and set the next approximation of the eigenvalue to the Rayleigh quotient of the current iteration equal to [formula]
+Note that for very small problems it is beneficial to replace the matrix inverse with the adjugate, which will yield the same iteration because it is equal to the inverse up to an irrelevant scale (the inverse of the determinant, specifically). The adjugate is easier to compute explicitly than the inverse (though the inverse is easier to apply to a vector for problems that aren't small), and is more numerically sound because it remains well defined as the eigenvalue converges.
+Example.
+(where phi equals the fraction with numerator 1 plus the square root of 5 and denominator 2 is the golden ratio).
+Octave implementation.
+
+========================================================================
+
+--- INDIVIDUAL BLOCKS [9] ---
+
+[Block 1] <P>
+Rayleigh quotient iteration is an eigenvalue algorithm which extends the idea of the inverse iteration by using the Rayleigh quotient to obtain increasingly accurate eigenvalue estimates.
+
+[Block 2] <P>
+Rayleigh quotient iteration is an iterative method, that is, it delivers a sequence of approximate solutions that converges to a true solution in the limit. Very rapid convergence is guaranteed and no more than a few iterations are needed in practice to obtain a reasonable approximation. The Rayleigh quotient iteration algorithm converges cubically for Hermitian or symmetric matrices, given an initial vector that is sufficiently close to an eigenvector of the matrix that is being analyzed.
+
+[Block 3] <H2>
+Algorithm.
+
+[Block 4] <P>
+The algorithm is very similar to inverse iteration, but replaces the estimated eigenvalue at the end of each iteration with the Rayleigh quotient. Begin by choosing some value mu sub 0 as an initial eigenvalue guess for the Hermitian matrix A. An initial vector b sub 0 must also be supplied as initial eigenvector guess.
+
+[Block 5] <P>
+Calculate the next approximation of the eigenvector b sub i plus 1 by [formula] where I is the identity matrix,
+and set the next approximation of the eigenvalue to the Rayleigh quotient of the current iteration equal to [formula]
+
+[Block 6] <P>
+Note that for very small problems it is beneficial to replace the matrix inverse with the adjugate, which will yield the same iteration because it is equal to the inverse up to an irrelevant scale (the inverse of the determinant, specifically). The adjugate is easier to compute explicitly than the inverse (though the inverse is easier to apply to a vector for problems that aren't small), and is more numerically sound because it remains well defined as the eigenvalue converges.
+
+[Block 7] <H2>
+Example.
+
+[Block 8] <P>
+(where phi equals the fraction with numerator 1 plus the square root of 5 and denominator 2 is the golden ratio).
+
+[Block 9] <H2>
+Octave implementation.
+

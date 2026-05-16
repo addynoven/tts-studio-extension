@@ -1,0 +1,149 @@
+URL: https://developer.mozilla.org/en-US/docs/Web/JavaScript
+TITLE: JavaScript | MDN
+TOTAL CHARS: 4892
+TOTAL BLOCKS: 34
+========================================================================
+
+--- FULL COMBINED TEXT ---
+
+JavaScript
+JavaScript (JS) is a lightweight interpreted (or just-in-time compiled) programming language with first-class functions. While it is most well-known as the scripting language for Web pages, many non-browser environments also use it, such as Node.js, Apache CouchDB and Adobe Acrobat. JavaScript is a prototype-based, garbage-collected, dynamic language, supporting multiple paradigms such as imperative, functional, and object-oriented.
+JavaScript's dynamic capabilities include runtime object construction, variable parameter lists, function variables, dynamic script creation (via eval), object introspection (via for...in and Object utilities), and source-code recovery (JavaScript functions store their source text and can be retrieved through toString()).
+This section is dedicated to the JavaScript language itself, and not the parts that are specific to Web pages or other host environments. For information about APIs that are specific to Web pages, please see Web APIs and DOM.
+The standards for JavaScript are the ECMAScript Language Specification (ECMA-262) and the ECMAScript Internationalization API specification (ECMA-402). As soon as one browser implements a feature, we try to document it. This means that cases where some proposals for new ECMAScript features have already been implemented in browsers, documentation and examples in MDN articles may use some of those new features. Most of the time, this happens between the stages 3 and 4, and is usually before the spec is officially published.
+Do not confuse JavaScript with the Java programming language — JavaScript is not "Interpreted Java". Both "Java" and "JavaScript" are trademarks or registered trademarks of Oracle in the U.S. and other countries. However, the two programming languages have very different syntax, semantics, and use.
+For more information about JavaScript specifications and related technologies, see JavaScript technologies overview.
+Beginner's tutorials
+Our learn web development core modules contain modern, up-to-date tutorials covering JavaScript fundamentals.
+This article provides a brief tour of what JavaScript is and how to use it, aimed at people who are completely new to web development.
+This module focuses on the essentials of the core JavaScript language, plus some key surrounding topics — learning these topics will give you a solid basis to work from.
+JavaScript frameworks are an essential part of modern front-end web development, providing developers with tried and tested tools for building scalable, interactive web applications. Many modern companies use frameworks as a standard part of their tooling, so many front-end development jobs now require framework experience. This set of articles provides a comfortable starting point to help you begin learning frameworks.
+JavaScript guides
+Fundamental language guides
+A much more detailed guide to the JavaScript language, aimed at those with previous programming experience either in JavaScript or another language.
+Intermediate
+The object-oriented nature of JavaScript is important to understand if you want to go further with your knowledge of the language and write more efficient code, therefore we've provided this module to help you.
+In this module, we take a look at asynchronous JavaScript, why it is important, and how it can be used to effectively handle potential blocking operations, such as fetching resources from a server.
+Explores what APIs are, and how to use some of the most common APIs you'll come across often in your development work.
+An overview of the basic syntax and semantics of JavaScript for those coming from other programming languages to get up to speed.
+Overview of available data structures in JavaScript.
+JavaScript provides three different value comparison operations: strict equality using ===, loose equality using ==, and the Object.is() method.
+How different methods that visit a group of object properties one-by-one handle the enumerability and ownership of properties.
+A closure is the combination of a function and the lexical environment within which that function was declared.
+Advanced
+Explanation of the widely misunderstood and underestimated prototype-based inheritance.
+Memory life cycle and garbage collection in JavaScript.
+Reference
+Browse the complete JavaScript reference documentation.
+Get to know standard built-in objects: Array, Boolean, Error, Function, JSON, Math, Number, Object, RegExp, String, Map, Set, WeakMap, WeakSet, and others.
+Learn more about the behavior of JavaScript's operators instanceof, typeof, new, this, the operator precedence, and more.
+Learn how do-while, for-in, for-of, try-catch, let, var, const, if-else, switch, and more JavaScript statements and keywords work.
+Learn how to work with JavaScript's functions to develop your applications.
+JavaScript classes are the most appropriate way to do object-oriented programming.
+
+========================================================================
+
+--- INDIVIDUAL BLOCKS [34] ---
+
+[Block 1] <H1>
+JavaScript
+
+[Block 2] <P>
+JavaScript (JS) is a lightweight interpreted (or just-in-time compiled) programming language with first-class functions. While it is most well-known as the scripting language for Web pages, many non-browser environments also use it, such as Node.js, Apache CouchDB and Adobe Acrobat. JavaScript is a prototype-based, garbage-collected, dynamic language, supporting multiple paradigms such as imperative, functional, and object-oriented.
+
+[Block 3] <P>
+JavaScript's dynamic capabilities include runtime object construction, variable parameter lists, function variables, dynamic script creation (via eval), object introspection (via for...in and Object utilities), and source-code recovery (JavaScript functions store their source text and can be retrieved through toString()).
+
+[Block 4] <P>
+This section is dedicated to the JavaScript language itself, and not the parts that are specific to Web pages or other host environments. For information about APIs that are specific to Web pages, please see Web APIs and DOM.
+
+[Block 5] <P>
+The standards for JavaScript are the ECMAScript Language Specification (ECMA-262) and the ECMAScript Internationalization API specification (ECMA-402). As soon as one browser implements a feature, we try to document it. This means that cases where some proposals for new ECMAScript features have already been implemented in browsers, documentation and examples in MDN articles may use some of those new features. Most of the time, this happens between the stages 3 and 4, and is usually before the spec is officially published.
+
+[Block 6] <P>
+Do not confuse JavaScript with the Java programming language — JavaScript is not "Interpreted Java". Both "Java" and "JavaScript" are trademarks or registered trademarks of Oracle in the U.S. and other countries. However, the two programming languages have very different syntax, semantics, and use.
+
+[Block 7] <P>
+For more information about JavaScript specifications and related technologies, see JavaScript technologies overview.
+
+[Block 8] <H2>
+Beginner's tutorials
+
+[Block 9] <P>
+Our learn web development core modules contain modern, up-to-date tutorials covering JavaScript fundamentals.
+
+[Block 10] <DD>
+This article provides a brief tour of what JavaScript is and how to use it, aimed at people who are completely new to web development.
+
+[Block 11] <DD>
+This module focuses on the essentials of the core JavaScript language, plus some key surrounding topics — learning these topics will give you a solid basis to work from.
+
+[Block 12] <DD>
+JavaScript frameworks are an essential part of modern front-end web development, providing developers with tried and tested tools for building scalable, interactive web applications. Many modern companies use frameworks as a standard part of their tooling, so many front-end development jobs now require framework experience. This set of articles provides a comfortable starting point to help you begin learning frameworks.
+
+[Block 13] <H2>
+JavaScript guides
+
+[Block 14] <H3>
+Fundamental language guides
+
+[Block 15] <DD>
+A much more detailed guide to the JavaScript language, aimed at those with previous programming experience either in JavaScript or another language.
+
+[Block 16] <H3>
+Intermediate
+
+[Block 17] <DD>
+The object-oriented nature of JavaScript is important to understand if you want to go further with your knowledge of the language and write more efficient code, therefore we've provided this module to help you.
+
+[Block 18] <DD>
+In this module, we take a look at asynchronous JavaScript, why it is important, and how it can be used to effectively handle potential blocking operations, such as fetching resources from a server.
+
+[Block 19] <DD>
+Explores what APIs are, and how to use some of the most common APIs you'll come across often in your development work.
+
+[Block 20] <DD>
+An overview of the basic syntax and semantics of JavaScript for those coming from other programming languages to get up to speed.
+
+[Block 21] <DD>
+Overview of available data structures in JavaScript.
+
+[Block 22] <DD>
+JavaScript provides three different value comparison operations: strict equality using ===, loose equality using ==, and the Object.is() method.
+
+[Block 23] <DD>
+How different methods that visit a group of object properties one-by-one handle the enumerability and ownership of properties.
+
+[Block 24] <DD>
+A closure is the combination of a function and the lexical environment within which that function was declared.
+
+[Block 25] <H3>
+Advanced
+
+[Block 26] <DD>
+Explanation of the widely misunderstood and underestimated prototype-based inheritance.
+
+[Block 27] <DD>
+Memory life cycle and garbage collection in JavaScript.
+
+[Block 28] <H2>
+Reference
+
+[Block 29] <P>
+Browse the complete JavaScript reference documentation.
+
+[Block 30] <DD>
+Get to know standard built-in objects: Array, Boolean, Error, Function, JSON, Math, Number, Object, RegExp, String, Map, Set, WeakMap, WeakSet, and others.
+
+[Block 31] <DD>
+Learn more about the behavior of JavaScript's operators instanceof, typeof, new, this, the operator precedence, and more.
+
+[Block 32] <DD>
+Learn how do-while, for-in, for-of, try-catch, let, var, const, if-else, switch, and more JavaScript statements and keywords work.
+
+[Block 33] <DD>
+Learn how to work with JavaScript's functions to develop your applications.
+
+[Block 34] <DD>
+JavaScript classes are the most appropriate way to do object-oriented programming.
+
