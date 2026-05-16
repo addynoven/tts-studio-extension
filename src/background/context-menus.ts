@@ -49,6 +49,10 @@ async function handleMenuClick(info: chrome.contextMenus.OnClickData): Promise<v
   switch (info.menuItemId) {
     case 'tts-read-selection': {
       if (!info.selectionText) return;
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab?.id) {
+        await ensureContentScript(tab.id);
+      }
       await ensureOffscreen();
       chrome.runtime.sendMessage({
         target: 'offscreen',
