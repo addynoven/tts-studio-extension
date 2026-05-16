@@ -119,5 +119,14 @@ export const MSG = {
 
   // Offscreen → Content (via background) — chunk-level highlighting
   HIGHLIGHT_CHUNK: 'HIGHLIGHT_CHUNK',
-  CLEAR_HIGHLIGHTS: 'CLEAR_HIGHLIGHTS'
+  CLEAR_HIGHLIGHTS: 'CLEAR_HIGHLIGHTS',
+
+  // Streaming protocol (article read-aloud)
+  STREAM_START: 'STREAM_START',
+  REQUEST_BLOCK: 'REQUEST_BLOCK',
+  BLOCK_READY: 'BLOCK_READY',
+  TTS_BUFFER: 'TTS_BUFFER',
+  STATUS_NEED_BLOCK: 'STATUS_NEED_BLOCK',
+  HIGHLIGHT_BLOCK: 'HIGHLIGHT_BLOCK',
+  STREAM_END: 'STREAM_END'
 } as const;

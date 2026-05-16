@@ -27,12 +27,12 @@ describe('commands', () => {
     expect(typeof commandHandler).toBe('function');
   });
 
-  it('read-article sends EXTRACT_ARTICLE to active tab', async () => {
+  it('read-article sends STREAM_START to active tab', async () => {
     await commandHandler('read-article');
     expect(ensureContentScript).toHaveBeenCalledWith(1);
     expect(chrome.tabs.sendMessage).toHaveBeenCalledWith(
       1,
-      expect.objectContaining({ type: MSG.EXTRACT_ARTICLE })
+      expect.objectContaining({ type: MSG.STREAM_START })
     );
   });
 

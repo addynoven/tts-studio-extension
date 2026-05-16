@@ -1,62 +1,73 @@
 /**
  * Content Script — Entry Point
- * Runs on every page. Handles extraction and sentence highlighting.
+ * Runs on every page.
  *
- * Two flows:
- *  1. Article flow: EXTRACT_ARTICLE → DOM-mapped extraction → ARTICLE_EXTRACTED
- *     Highlighting uses direct element references (100% accurate).
- *  2. Popup flow: User pastes text → HIGHLIGHT_CHUNK with text search.
+ * Two modes:
+ *  1. BATCH (legacy): EXTRACT_ARTICLE → extractMappedArticle → ARTICLE_EXTRACTED
+ *  2. STREAMING (new): STREAM_START → BlockIterator → BLOCK_READY per block
  */
 
 import { MSG } from '../shared/constants.js';
 import { extractSelection } from './extractor/index.js';
-import { extractMappedArticle } from './extractor/dom-mapper.js';
-import { highlightSentence, highlightByIndex, setMappedBlocks, clearHighlight, clearAll } from './highlighter.js';
+import { extractMappedArticle, BlockIterator } from './extractor/dom-mapper.js';
+import { highlightSentence, highlightElement, clearHighlight, clearAll } from './highlighter.js';
 import { log } from '../shared/logger.js';
-import { initMathSpeech } from './sanitizer/math-speech.js';
 
-// Guard against double-init (manifest injection + programmatic injection)
+// Guard against double-init
 if (!window.__ttsStudioLoaded) {
   window.__ttsStudioLoaded = true;
-
   log('content', 'log', 'Content script loaded on', location.hostname);
 
-  // Initialise math verbalisation engine (SRE + LaTeX fallback).
-  // Fire-and-forget: if it fails we still have the LaTeX verbalizer.
-  initMathSpeech().catch(() => {});
+  // ── Streaming state ────────────────────────────────────────────────────────
 
-  // ── Article block mapping ──────────────────────────────────────────────────
-
-  let articleBlocks = null;
-  let blockToChunkMap = {};
+  let streamIterator = null;
+  let streamActive = false;
 
   // ── Message handlers ───────────────────────────────────────────────────────
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     switch (message.type) {
+      // ── Ping ──
       case '__TTS_PING__':
       case '__TTS_PING':
       case '__PING__':
         sendResponse({ ok: true });
         return false;
 
-      case MSG.GET_SELECTION:
-        handleGetSelection(sendResponse);
-        return true;
-
+      // ── Legacy batch extraction ──
       case MSG.EXTRACT_ARTICLE:
         handleExtractArticle(sendResponse);
         return true;
 
+      case MSG.GET_SELECTION:
+        handleGetSelection(sendResponse);
+        return true;
+
+      // ── Streaming protocol ──
+      case MSG.STREAM_START:
+        handleStreamStart(message);
+        sendResponse({ ok: true });
+        return false;
+
+      case MSG.REQUEST_BLOCK:
+        handleRequestBlock(message, sendResponse);
+        return true;
+
+      // ── Highlighting ──
       case MSG.HIGHLIGHT_CHUNK:
         handleHighlightChunk(message);
         sendResponse({ ok: true });
         return false;
 
+      case MSG.HIGHLIGHT_BLOCK:
+        handleHighlightBlock(message);
+        sendResponse({ ok: true });
+        return false;
+
       case MSG.CLEAR_HIGHLIGHTS:
         clearAll();
-        articleBlocks = null;
-        blockToChunkMap = {};
+        streamIterator = null;
+        streamActive = false;
         sendResponse({ ok: true });
         return false;
 
@@ -65,7 +76,7 @@ if (!window.__ttsStudioLoaded) {
     }
   });
 
-  // ── Handlers ───────────────────────────────────────────────────────────────
+  // ── Legacy handlers ────────────────────────────────────────────────────────
 
   function handleGetSelection(sendResponse) {
     const result = extractSelection();
@@ -74,7 +85,7 @@ if (!window.__ttsStudioLoaded) {
   }
 
   function handleExtractArticle(sendResponse) {
-    log('content', 'log', 'EXTRACT_ARTICLE received');
+    log('content', 'log', 'EXTRACT_ARTICLE received (batch mode)');
 
     const { blocks, title, fullText } = extractMappedArticle();
     log('content', 'log', 'Extracted:', title, '|', blocks.length, 'blocks |', fullText.length, 'chars');
@@ -85,13 +96,8 @@ if (!window.__ttsStudioLoaded) {
       return;
     }
 
-    // Store the block mapping for highlighting
-    articleBlocks = blocks;
-    setMappedBlocks(blocks);
-
     const blockTexts = blocks.map(b => b.ttsText);
 
-    // Send to background for TTS
     chrome.runtime.sendMessage({
       target: 'background',
       type: MSG.ARTICLE_EXTRACTED,
@@ -109,35 +115,81 @@ if (!window.__ttsStudioLoaded) {
     sendResponse({ title, text: fullText, length: fullText.length });
   }
 
-  function handleHighlightChunk({ chunkText, chunkIndex }) {
-    if (!chunkText) return;
+  // ── Streaming handlers ─────────────────────────────────────────────────────
 
-    if (articleBlocks && articleBlocks.length > 0) {
-      const blockIdx = findBlockForChunk(chunkText);
-      if (blockIdx !== -1) {
-        highlightByIndex(blockIdx);
-        return;
-      }
+  function handleStreamStart(message) {
+    log('content', 'log', 'STREAM_START received');
+
+    clearAll();
+    streamIterator = new BlockIterator();
+    streamActive = true;
+
+    log('content', 'log', 'BlockIterator initialized,', streamIterator.totalBlocks, 'raw blocks');
+
+    // Immediately send block 0 to start playback quickly
+    const block = streamIterator.next();
+    if (block) {
+      sendBlockReady(block, false);
+    } else {
+      log('content', 'warn', 'No readable blocks found on page');
+      streamActive = false;
+    }
+  }
+
+  function handleRequestBlock(message, sendResponse) {
+    const index = message.blockIndex ?? -1;
+    log('content', 'log', 'REQUEST_BLOCK:', index);
+
+    if (!streamIterator || !streamActive) {
+      log('content', 'warn', 'REQUEST_BLOCK but no active stream');
+      sendResponse({ ok: false, error: 'No active stream' });
+      return;
     }
 
+    // If index is specified and different from cursor, seek
+    if (index >= 0 && index !== streamIterator.cursor) {
+      streamIterator.seek(index);
+    }
+
+    const block = streamIterator.next();
+    const isLast = streamIterator.cursor >= streamIterator.totalBlocks;
+
+    if (block) {
+      sendBlockReady(block, isLast);
+      sendResponse({ ok: true, index: block.index, isLast });
+    } else {
+      // No more blocks
+      streamActive = false;
+      sendResponse({ ok: true, index: -1, isLast: true });
+    }
+  }
+
+  function sendBlockReady(block, isLast) {
+    chrome.runtime.sendMessage({
+      target: 'background',
+      type: MSG.BLOCK_READY,
+      block: {
+        index: block.index,
+        text: block.ttsText,
+        isLastBlock: isLast
+      }
+    }).catch((e) => {
+      log('content', 'error', 'Failed to send BLOCK_READY:', e.message);
+    });
+  }
+
+  // ── Highlight handlers ─────────────────────────────────────────────────────
+
+  function handleHighlightChunk({ chunkText }) {
+    if (!chunkText) return;
     highlightSentence(chunkText);
   }
 
-  function findBlockForChunk(chunkText) {
-    if (!articleBlocks) return -1;
-    const normChunk = chunkText.replace(/\s+/g, ' ').trim().toLowerCase();
-    if (!normChunk) return -1;
-
-    for (let i = 0; i < articleBlocks.length; i++) {
-      const blockText = articleBlocks[i].ttsText.replace(/\s+/g, ' ').trim().toLowerCase();
-      if (blockText.includes(normChunk)) return i;
+  function handleHighlightBlock({ blockIndex }) {
+    if (!streamIterator || blockIndex < 0) return;
+    const block = streamIterator.getBlock(blockIndex);
+    if (block?.el) {
+      highlightElement(block.el);
     }
-
-    for (let i = 0; i < articleBlocks.length; i++) {
-      const rawText = articleBlocks[i].rawText.replace(/\s+/g, ' ').trim().toLowerCase();
-      if (rawText.includes(normChunk)) return i;
-    }
-
-    return -1;
   }
 }

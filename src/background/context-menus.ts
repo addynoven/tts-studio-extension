@@ -68,8 +68,8 @@ async function handleMenuClick(info: chrome.contextMenus.OnClickData): Promise<v
       // Ensure content script is injected (handles tabs open before extension reload)
       await ensureContentScript(tab.id);
 
-      chrome.tabs.sendMessage(tab.id, { type: MSG.EXTRACT_ARTICLE })
-        .catch((e: Error) => console.error('[TTS Studio] EXTRACT_ARTICLE failed:', e.message));
+      chrome.tabs.sendMessage(tab.id, { type: MSG.STREAM_START })
+        .catch((e: Error) => console.error('[TTS Studio] STREAM_START failed:', e.message));
       break;
     }
   }

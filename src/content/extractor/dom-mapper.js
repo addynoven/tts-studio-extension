@@ -1,12 +1,11 @@
 /**
  * DOM-mapped text extraction.
  *
- * Walks the live DOM to build an ordered list of { element, text } blocks.
- * This preserves the mapping between extracted text and real DOM elements,
- * so highlighting can find the exact element to light up.
+ * Two modes:
+ *  1. BATCH: extractMappedArticle() — slurps entire page (legacy, popup use)
+ *  2. STREAMING: BlockIterator — yields one block at a time (new, read-aloud use)
  *
- * Uses Readability to determine which part of the page is the article,
- * then walks the original DOM (not the clone) to find matching content.
+ * Uses Readability to determine article root, then walks original DOM.
  */
 
 import { isProbablyReaderable, Readability } from '@mozilla/readability';
@@ -15,7 +14,6 @@ import { sanitizeForTTS } from '../sanitizer/smart-cleaner.js';
 const BLOCK_TAGS = new Set([
   'P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6',
   'LI', 'BLOCKQUOTE', 'TD', 'TH', 'FIGCAPTION', 'DT', 'DD'
-  // NOTE: PRE is intentionally excluded — code blocks are unreadable by TTS
 ]);
 
 const SKIP_TAGS = new Set([
@@ -24,110 +22,173 @@ const SKIP_TAGS = new Set([
   'SELECT', 'TEXTAREA', 'LABEL'
 ]);
 
+const STOP_SECTIONS = /see also|references|external links|notes|further reading|bibliography|citations|help improve|contribute|page information|metadata/i;
+
+// ── BlockIterator (Streaming) ──────────────────────────────────────────────
+
 /**
- * Extract article blocks mapped to real DOM elements.
+ * Lazy block iterator for streaming extraction.
  *
- * Returns:
- *  - blocks: [{ el: Element, rawText: string, ttsText: string }, ...]
- *  - title: string
- *  - fullText: string (all ttsText joined with \n)
+ * Walks the DOM once to collect lightweight block references,
+ * then sanitizes + filters on-demand as next() is called.
+ * Supports seek() for skip navigation.
  */
-export function extractMappedArticle(sanitizerOpts = {}) {
-  // Step 1: Use Readability to find article root
-  const articleRoot = findArticleRoot();
-  const root = articleRoot || document.body;
-  const title = document.title || '';
+export class BlockIterator {
+  constructor(sanitizerOpts = {}) {
+    this.sanitizerOpts = sanitizerOpts;
+    this.cursor = 0;
+    this.blocks = [];
+    this.stopReached = false;
 
-  // Step 2: Walk real DOM, collect block-level text elements
-  const blocks = [];
-  walkBlocks(root, blocks);
+    const articleRoot = findArticleRoot();
+    const root = articleRoot || document.body;
+    this.title = document.title || '';
 
-  // Step 3: Filter out noise (too short, duplicate, nav-like)
-  // Also drop "See also", "References", "External links", "Notes" sections
-  const STOP_SECTIONS = /see also|references|external links|notes|further reading|bibliography|citations|help improve|contribute|page information|metadata/i;
-  let stopReached = false;
+    // Step 1: Walk DOM once, collect lightweight refs (fast, low memory)
+    const rawBlocks = [];
+    walkBlocks(root, rawBlocks);
 
-  const filtered = blocks.filter(b => {
-    const text = b.rawText.trim();
-    const isHeading = /^H[1-6]$/.test(b.el.tagName);
+    // Step 2: Pre-filter noise (length, nav-like) but DON'T sanitize yet
+    for (const b of rawBlocks) {
+      const text = b.rawText.trim();
+      const isHeading = /^H[1-6]$/.test(b.el.tagName);
 
-    // Stop collecting once we hit a bibliography/nav section heading
-    if (isHeading && STOP_SECTIONS.test(text)) {
-      stopReached = true;
-      return false;
+      if (isHeading && STOP_SECTIONS.test(text)) {
+        this.stopReached = true;
+        continue;
+      }
+      if (this.stopReached) continue;
+
+      if (isHeading && text.length > 0) {
+        this.blocks.push(b);
+        continue;
+      }
+
+      if (text.length < 15) continue;
+      if (text.split(/\s+/).length < 3) continue;
+
+      this.blocks.push(b);
     }
-    if (stopReached) return false;
-
-    // Always keep headings, even if they are short like "Algorithm" or "Example"
-    if (isHeading && text.length > 0) return true;
-
-    // Filter out very short lines of regular text
-    if (text.length < 15) return false;
-
-    // Skip elements that look like navigation/buttons
-    if (text.split(/\s+/).length < 3) return false;
-
-    return true;
-  });
-
-  // Step 4: Sanitize each block's HTML for TTS
-  for (const block of filtered) {
-    // We pass the innerHTML to the smart cleaner so it can strip <script>, <style>, and other tags
-    // properly before they get flattened.
-    block.ttsText = sanitizeForTTS(block.html, sanitizerOpts).trim();
   }
 
-  // Add pause markers after headings so TTS doesn't run them into the next paragraph
-  for (const b of filtered) {
+  /**
+   * Get total number of blocks (pre-filtered, not yet sanitized).
+   */
+  get totalBlocks() {
+    return this.blocks.length;
+  }
+
+  /**
+   * Yield the next sanitized block, or null if done.
+   * @returns {{ el: Element, rawText: string, ttsText: string, index: number } | null}
+   */
+  next() {
+    while (this.cursor < this.blocks.length) {
+      const b = this.blocks[this.cursor++];
+      const ttsText = this.sanitizeBlock(b);
+
+      if (!this.shouldInclude(b, ttsText)) continue;
+
+      return {
+        el: b.el,
+        rawText: b.rawText,
+        ttsText,
+        index: this.cursor - 1
+      };
+    }
+    return null;
+  }
+
+  /**
+   * Get a specific block by index (for seeking / skipping).
+   * Sanitizes on-demand.
+   * @param {number} index
+   */
+  getBlock(index) {
+    if (index < 0 || index >= this.blocks.length) return null;
+    const b = this.blocks[index];
+    const ttsText = this.sanitizeBlock(b);
+    if (!this.shouldInclude(b, ttsText)) return null;
+    return { el: b.el, rawText: b.rawText, ttsText, index };
+  }
+
+  /**
+   * Seek cursor to a specific block index.
+   * Next next() call returns that block.
+   */
+  seek(index) {
+    this.cursor = Math.max(0, Math.min(index, this.blocks.length));
+  }
+
+  /**
+   * Peek at the current cursor position without advancing.
+   */
+  peek() {
+    const saved = this.cursor;
+    const block = this.next();
+    this.cursor = saved;
+    return block;
+  }
+
+  // ── Internal helpers ─────────────────────────────────────────────────────
+
+  sanitizeBlock(b) {
+    let text = sanitizeForTTS(b.html, this.sanitizerOpts).trim();
+
+    // Add pause markers after headings
     if (/^H[1-6]$/.test(b.el.tagName)) {
-      const t = b.ttsText.trim();
-      if (t.length > 0 && !/[.!?]$/.test(t)) {
-        b.ttsText = t + '.';
+      if (text.length > 0 && !/[.!?]$/.test(text)) {
+        text = text + '.';
       }
     }
+
+    return text;
   }
 
-  // Remove blocks where sanitization emptied the text or left math fragments
-  const final = filtered.filter(b => {
-    const t = b.ttsText.trim();
+  shouldInclude(b, ttsText) {
+    const t = ttsText.trim();
     const isHeading = /^H[1-6]$/.test(b.el.tagName);
 
-    // Always keep headings
     if (isHeading && t.length > 0) return true;
 
-    // Keep paragraphs that contain formulas but still have narrative text.
-    // Technical papers often have equations mid-paragraph; the surrounding text
-    // is valuable even if the sentence structure is unconventional.
     const hasFormula = t.includes('[formula]');
     const letters = (t.match(/[a-zA-Z]/g) || []).length;
     if (hasFormula && t.length >= 30 && letters >= t.length * 0.15) return true;
 
     if (t.length < 25) return false;
-    // Skip lines that are mostly punctuation / whitespace after math stripping
     if (letters < t.length * 0.3) return false;
-    // Skip sentence fragments caused by inline math removal.
-    // Any paragraph that doesn't end with proper sentence punctuation is likely broken.
+
     const lastRealChar = t.replace(/\s+$/, '').slice(-1);
     if (!/[.!?]/.test(lastRealChar)) return false;
-    // Skip parenthetical fragments: "(where x is y)." or "[note 1]."
+
     if (/^[\(\[]/.test(t) && t.length < 60) return false;
-    // Skip fragments that start with a lowercase letter ("from which...", "where...")
+
     const firstRealChar = t.replace(/^\s+/, '')[0];
     if (firstRealChar && /[a-z]/.test(firstRealChar)) return false;
-    // Skip dangling code intros when the code block itself was stripped
+
     if (/\b(Octave|Matlab|Python|implementation|code snippet)\b/i.test(t) && t.length < 90) return false;
+
     return true;
-  });
-
-  const fullText = final.map(b => b.ttsText).join('\n');
-
-  return { blocks: final, title, fullText };
+  }
 }
 
-/**
- * Find the main article container using Readability heuristics.
- * Returns the real DOM element (not a clone) that best matches.
- */
+// ── Batch extraction (legacy, used by popup) ───────────────────────────────
+
+export function extractMappedArticle(sanitizerOpts = {}) {
+  const iter = new BlockIterator(sanitizerOpts);
+  const final = [];
+
+  let block;
+  while ((block = iter.next()) !== null) {
+    final.push(block);
+  }
+
+  const fullText = final.map(b => b.ttsText).join('\n');
+  return { blocks: final, title: iter.title, fullText };
+}
+
+// ── Shared helpers ─────────────────────────────────────────────────────────
+
 function findArticleRoot() {
   if (!isProbablyReaderable(document)) return null;
 
@@ -137,23 +198,19 @@ function findArticleRoot() {
     const article = reader.parse();
     if (!article || !article.content) return null;
 
-    // Readability returns HTML — parse it to get the text
     const tempDiv = document.createElement('div');
     tempDiv.innerHTML = article.content;
     const articleText = tempDiv.textContent || '';
 
-    // Find the real DOM container whose text best matches
     const candidates = document.querySelectorAll('article, main, [role="main"], .post-content, .article-body, .entry-content, #mw-content-text, .mw-parser-output');
     for (const el of candidates) {
       const elText = el.textContent || '';
-      // If this element contains most of the article text, it's our root
       if (elText.length > 0 && articleText.length > 0) {
         const overlap = computeOverlap(articleText, elText);
         if (overlap > 0.6) return el;
       }
     }
 
-    // Fallback: try common article containers
     const body = document.body;
     const divs = body.querySelectorAll('div');
     let bestEl = null;
@@ -176,9 +233,6 @@ function findArticleRoot() {
   }
 }
 
-/**
- * Compute what fraction of textA's words appear in textB.
- */
 function computeOverlap(textA, textB) {
   const wordsA = new Set(textA.toLowerCase().split(/\s+/).filter(w => w.length > 3));
   const wordsB = new Set(textB.toLowerCase().split(/\s+/));
@@ -190,14 +244,10 @@ function computeOverlap(textA, textB) {
   return matched / wordsA.size;
 }
 
-/**
- * Recursively walk the DOM and collect block-level text elements.
- */
 function walkBlocks(root, blocks) {
   for (const child of root.children) {
     if (SKIP_TAGS.has(child.tagName)) continue;
 
-    // Skip common boilerplate classes/IDs
     const className = child.className || '';
     const id = child.id || '';
     if (typeof className === 'string' && (
@@ -210,7 +260,6 @@ function walkBlocks(root, blocks) {
     )) continue;
     if (id === 'catlinks' || id === 'toc' || id === 'references' || id === 'feedback') continue;
 
-    // Check visibility
     const style = window.getComputedStyle(child);
     if (style.display === 'none' || style.visibility === 'hidden') continue;
 
@@ -221,7 +270,6 @@ function walkBlocks(root, blocks) {
         blocks.push({ el: child, rawText: text, html });
       }
     } else {
-      // Recurse into non-block containers (divs, sections, etc.)
       walkBlocks(child, blocks);
     }
   }

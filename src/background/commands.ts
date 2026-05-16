@@ -26,7 +26,7 @@ export function initCommands(): void {
       case 'read-article':
         if (tabId) {
           await ensureContentScript(tabId);
-          chrome.tabs.sendMessage(tabId, { type: MSG.EXTRACT_ARTICLE }).catch(() => {});
+          chrome.tabs.sendMessage(tabId, { type: MSG.STREAM_START }).catch(() => {});
         }
         showToast(tabId, '🔊 Reading article...');
         break;
