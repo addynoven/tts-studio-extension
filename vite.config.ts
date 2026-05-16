@@ -12,6 +12,7 @@ import {
   readFileSync,
   writeFileSync
 } from 'fs';
+import { build as esbuild } from 'esbuild';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 
@@ -170,13 +171,52 @@ export default defineConfig({
   plugins: [
     {
       name: 'chrome-extension-build',
-      closeBundle() {
+      async closeBundle() {
         flattenDist();
         copyManifest();
         copyMathmaps();
         copyLegacyAssets();
+        await bundleContentScriptIIFE();
         console.log('✓ Chrome extension built to dist/');
       },
     },
   ],
 });
+
+/**
+ * Re-bundle the content script as a self-contained IIFE.
+ *
+ * The content script is injected both by the manifest (as module) and
+ * programmatically by the background/popup. Chrome's programmatic injection
+ * via `chrome.scripting.executeScript({ files })` sometimes injects as a
+ * classic script even when the manifest declares `type: "module"`, causing
+ * "Cannot use import statement outside a module" syntax errors.
+ *
+ * Building it as an IIFE eliminates all import/export statements, so it
+ * works reliably regardless of how Chrome injects it.
+ */
+async function bundleContentScriptIIFE(): Promise<void> {
+  const entry = resolve(__dirname, 'src/content/index.js');
+  const outFile = resolve(__dirname, 'dist/content.js');
+
+  try {
+    await esbuild({
+      entryPoints: [entry],
+      bundle: true,
+      outfile: outFile,
+      format: 'iife',
+      platform: 'browser',
+      target: 'chrome100',
+      // Ensure all shared code is inlined; no external chunks
+      splitting: false,
+      // Minify only in production builds (Vite sets NODE_ENV)
+      minify: process.env.NODE_ENV === 'production',
+      // Preserve console.logs for debugging unless explicitly stripped
+      drop: [],
+    });
+    console.log('✓ Content script re-bundled as IIFE');
+  } catch (e) {
+    console.error('✗ Content script IIFE build failed:', e);
+    throw e;
+  }
+}

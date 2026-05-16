@@ -174,7 +174,6 @@ const AUDIO_BUFFER_TARGET = 1; // pre-generate 1 block ahead
 
 chrome.runtime.onMessage.addListener((message) => {
   if (message.target !== 'offscreen') return;
-  if (message._forwarded) return;
 
   // ── Streaming: receive block from content ──
   if (message.type === MSG.TTS_BUFFER) {
@@ -289,12 +288,12 @@ chrome.runtime.onMessage.addListener((message) => {
 
 // ── Streaming handlers ─────────────────────────────────────────────────────
 
-function handleStreamBuffer(block) {
+async function handleStreamBuffer(block) {
   if (!block || !block.text) return;
 
-  // First block: initialize stream
+  // First block: initialize stream (must complete before synthesis)
   if (!stream.active) {
-    initStream(block);
+    await initStream(block);
   }
 
   log('offscreen', 'log', `Stream buffer received block ${block.index}, len=${block.text.length}`);
@@ -649,3 +648,5 @@ function buildParagraphMap(originalText, chunks) {
 }
 
 log('offscreen', 'log', 'Offscreen document initialized');
+chrome.runtime.sendMessage({ target: 'background', type: MSG.OFFSCREEN_READY });
+console.log('[TTS Studio DEBUG] Offscreen READY message sent');

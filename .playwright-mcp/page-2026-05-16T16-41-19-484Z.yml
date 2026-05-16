@@ -1,0 +1,754 @@
+- generic [active] [ref=e1]:
+  - link "Jump to content" [ref=e2] [cursor=pointer]:
+    - /url: "#bodyContent"
+  - banner [ref=e4]:
+    - generic [ref=e5]:
+      - navigation "Site" [ref=e6]:
+        - generic "Main menu" [ref=e7]:
+          - button "Main menu" [ref=e8] [cursor=pointer]
+          - generic [ref=e11]: Main menu
+      - link "Wikipedia The Free Encyclopedia" [ref=e12] [cursor=pointer]:
+        - /url: /wiki/Main_Page
+        - generic [ref=e13]:
+          - img "Wikipedia" [ref=e14]
+          - img "The Free Encyclopedia" [ref=e15]
+    - generic [ref=e16]:
+      - search [ref=e17]:
+        - link "Search" [ref=e18] [cursor=pointer]:
+          - /url: /wiki/Special:Search
+          - generic [ref=e20]: Search
+      - navigation "Personal tools" [ref=e21]:
+        - generic [ref=e22]:
+          - navigation "Appearance" [ref=e23]:
+            - generic "Change the appearance of the page's font size, width, and color" [ref=e24]:
+              - button "Appearance" [ref=e25] [cursor=pointer]
+              - generic [ref=e28]: Appearance
+          - list [ref=e31]:
+            - listitem [ref=e32]:
+              - link "Donate" [ref=e33] [cursor=pointer]:
+                - /url: https://donate.wikimedia.org/?wmf_source=donate&wmf_medium=sidebar&wmf_campaign=en.wikipedia.org&uselang=en
+            - listitem [ref=e34]:
+              - link "Create account" [ref=e35] [cursor=pointer]:
+                - /url: /w/index.php?title=Special:CreateAccount&returnto=Rayleigh+quotient+iteration
+            - listitem [ref=e36]:
+              - link "Log in" [ref=e37] [cursor=pointer]:
+                - /url: /w/index.php?title=Special:UserLogin&returnto=Rayleigh+quotient+iteration
+  - generic [ref=e39]:
+    - main [ref=e41]:
+      - generic [ref=e42]:
+        - navigation "Contents" [ref=e43]:
+          - generic "Table of Contents" [ref=e44]:
+            - button "Toggle the table of contents" [ref=e45] [cursor=pointer]
+            - generic [ref=e48]: Toggle the table of contents
+        - heading "Rayleigh quotient iteration" [level=1] [ref=e49]:
+          - generic [ref=e50]: Rayleigh quotient iteration
+        - generic [ref=e51]:
+          - button "Go to an article in another language. Available in 3 languages" [ref=e52] [cursor=pointer]
+          - generic [ref=e55]: 3 languages
+      - generic [ref=e57]:
+        - navigation "Namespaces" [ref=e59]:
+          - generic [ref=e60]:
+            - generic:
+              - list:
+                - listitem [ref=e61]:
+                  - link "Article" [ref=e62] [cursor=pointer]:
+                    - /url: /wiki/Rayleigh_quotient_iteration
+                    - generic [ref=e63]: Article
+                - listitem [ref=e64]:
+                  - link "Talk" [ref=e65] [cursor=pointer]:
+                    - /url: /wiki/Talk:Rayleigh_quotient_iteration
+                    - generic [ref=e66]: Talk
+        - generic [ref=e67]:
+          - navigation "Views" [ref=e68]:
+            - generic [ref=e69]:
+              - generic:
+                - list:
+                  - listitem [ref=e70]:
+                    - link "Read" [ref=e71] [cursor=pointer]:
+                      - /url: /wiki/Rayleigh_quotient_iteration
+                      - generic [ref=e72]: Read
+                  - listitem [ref=e73]:
+                    - link "Edit" [ref=e74] [cursor=pointer]:
+                      - /url: /w/index.php?title=Rayleigh_quotient_iteration&action=edit
+                      - generic [ref=e75]: Edit
+                  - listitem [ref=e76]:
+                    - link "View history" [ref=e77] [cursor=pointer]:
+                      - /url: /w/index.php?title=Rayleigh_quotient_iteration&action=history
+                      - generic [ref=e78]: View history
+          - navigation "Page tools" [ref=e79]:
+            - generic [ref=e80]:
+              - button "Tools" [ref=e81] [cursor=pointer]
+              - generic [ref=e83] [cursor=pointer]: Tools
+      - generic "Rayleigh quotient iteration" [ref=e84]:
+        - generic [ref=e86]: From Wikipedia, the free encyclopedia
+        - generic [ref=e88]:
+          - paragraph [ref=e89]:
+            - text: Rayleigh quotient iteration is an
+            - link "eigenvalue algorithm" [ref=e90] [cursor=pointer]:
+              - /url: /wiki/Eigenvalue_algorithm
+            - text: which extends the idea of the
+            - link "inverse iteration" [ref=e91] [cursor=pointer]:
+              - /url: /wiki/Inverse_iteration
+            - text: by using the
+            - link "Rayleigh quotient" [ref=e92] [cursor=pointer]:
+              - /url: /wiki/Rayleigh_quotient
+            - text: to obtain increasingly accurate
+            - link "eigenvalue" [ref=e93] [cursor=pointer]:
+              - /url: /wiki/Eigenvalue
+            - text: estimates.
+          - paragraph [ref=e94]:
+            - text: Rayleigh quotient iteration is an
+            - link "iterative method" [ref=e95] [cursor=pointer]:
+              - /url: /wiki/Iterative_method
+            - text: ", that is, it delivers a sequence of approximate solutions that"
+            - link "converges" [ref=e96] [cursor=pointer]:
+              - /url: /wiki/Limit_of_a_sequence
+            - text: to a true solution in the limit. Very rapid convergence is guaranteed and no more than a few iterations are needed in practice to obtain a reasonable approximation. The Rayleigh quotient iteration algorithm
+            - link "converges cubically" [ref=e97] [cursor=pointer]:
+              - /url: /wiki/Rate_of_convergence
+            - text: for Hermitian or symmetric matrices, given an initial vector that is sufficiently close to an
+            - link "eigenvector" [ref=e98] [cursor=pointer]:
+              - /url: /wiki/EigenVector
+            - text: of the
+            - link "matrix" [ref=e99] [cursor=pointer]:
+              - /url: /wiki/Matrix_(mathematics)
+            - text: that is being analyzed.
+          - generic [ref=e100]:
+            - heading "Algorithm" [level=2] [ref=e101]
+            - generic [ref=e102]:
+              - text: "["
+              - link "edit" [ref=e103] [cursor=pointer]:
+                - /url: /w/index.php?title=Rayleigh_quotient_iteration&action=edit&section=1
+              - text: "]"
+          - paragraph [ref=e104]:
+            - text: The algorithm is very similar to inverse iteration, but replaces the estimated eigenvalue at the end of each iteration with the Rayleigh quotient. Begin by choosing some value
+            - generic [ref=e105]:
+              - math [ref=e107]:
+                - generic [ref=e111]:
+                  - generic [ref=e112]: μ
+                  - generic [ref=e114]: "0"
+              - img [ref=e115]
+            - text: as an initial eigenvalue guess for the Hermitian matrix
+            - generic [ref=e116]:
+              - math [ref=e118]:
+                - generic [ref=e122]: A
+              - img [ref=e123]
+            - text: . An initial vector
+            - generic [ref=e124]:
+              - math [ref=e126]:
+                - generic [ref=e130]:
+                  - generic [ref=e131]: b
+                  - generic [ref=e133]: "0"
+              - img [ref=e134]
+            - text: must also be supplied as initial eigenvector guess.
+          - paragraph [ref=e135]:
+            - text: Calculate the next approximation of the eigenvector
+            - generic [ref=e136]:
+              - math [ref=e138]:
+                - generic [ref=e142]:
+                  - generic [ref=e143]: b
+                  - generic [ref=e144]:
+                    - generic [ref=e145]: i
+                    - generic [ref=e146]: +
+                    - generic [ref=e147]: "1"
+              - img [ref=e148]
+            - text: by
+            - generic [ref=e149]:
+              - math [ref=e151]:
+                - generic [ref=e154]:
+                  - generic [ref=e155]:
+                    - generic [ref=e156]: b
+                    - generic [ref=e157]:
+                      - generic [ref=e158]: i
+                      - generic [ref=e159]: +
+                      - generic [ref=e160]: "1"
+                  - generic [ref=e161]: =
+                  - generic [ref=e163]:
+                    - generic [ref=e164]:
+                      - generic [ref=e165]: (
+                      - generic [ref=e166]: A
+                      - generic [ref=e167]: −
+                      - generic [ref=e168]:
+                        - generic [ref=e169]: μ
+                        - generic [ref=e171]: i
+                      - generic [ref=e172]: I
+                      - generic [ref=e173]:
+                        - generic [ref=e174]: )
+                        - generic [ref=e175]:
+                          - generic [ref=e176]: −
+                          - generic [ref=e177]: "1"
+                      - generic [ref=e178]:
+                        - generic [ref=e179]: b
+                        - generic [ref=e181]: i
+                    - generic [ref=e182]:
+                      - generic [ref=e183]: ‖
+                      - generic [ref=e184]: (
+                      - generic [ref=e185]: A
+                      - generic [ref=e186]: −
+                      - generic [ref=e187]:
+                        - generic [ref=e188]: μ
+                        - generic [ref=e190]: i
+                      - generic [ref=e191]: I
+                      - generic [ref=e192]:
+                        - generic [ref=e193]: )
+                        - generic [ref=e194]:
+                          - generic [ref=e195]: −
+                          - generic [ref=e196]: "1"
+                      - generic [ref=e197]:
+                        - generic [ref=e198]: b
+                        - generic [ref=e200]: i
+                      - generic [ref=e201]: ‖
+                  - generic [ref=e202]: ","
+              - img [ref=e203]
+            - text: where
+            - generic [ref=e204]:
+              - math [ref=e206]:
+                - generic [ref=e210]: I
+              - img [ref=e211]
+            - text: is the identity matrix, and set the next approximation of the eigenvalue to the Rayleigh quotient of the current iteration equal to
+            - generic [ref=e212]:
+              - math [ref=e214]:
+                - generic [ref=e217]:
+                  - generic [ref=e218]:
+                    - generic [ref=e219]: μ
+                    - generic [ref=e220]:
+                      - generic [ref=e221]: i
+                      - generic [ref=e222]: +
+                      - generic [ref=e223]: "1"
+                  - generic [ref=e224]: =
+                  - generic [ref=e226]:
+                    - generic [ref=e227]:
+                      - generic [ref=e228]:
+                        - generic [ref=e229]: b
+                        - generic [ref=e230]:
+                          - generic [ref=e231]: i
+                          - generic [ref=e232]: +
+                          - generic [ref=e233]: "1"
+                        - generic [ref=e235]: ∗
+                      - generic [ref=e236]: A
+                      - generic [ref=e237]:
+                        - generic [ref=e238]: b
+                        - generic [ref=e239]:
+                          - generic [ref=e240]: i
+                          - generic [ref=e241]: +
+                          - generic [ref=e242]: "1"
+                    - generic [ref=e243]:
+                      - generic [ref=e244]:
+                        - generic [ref=e245]: b
+                        - generic [ref=e246]:
+                          - generic [ref=e247]: i
+                          - generic [ref=e248]: +
+                          - generic [ref=e249]: "1"
+                        - generic [ref=e251]: ∗
+                      - generic [ref=e252]:
+                        - generic [ref=e253]: b
+                        - generic [ref=e254]:
+                          - generic [ref=e255]: i
+                          - generic [ref=e256]: +
+                          - generic [ref=e257]: "1"
+                  - generic [ref=e258]: .
+              - img [ref=e259]
+          - paragraph [ref=e260]:
+            - text: To compute more than one eigenvalue, the algorithm can be combined with a deflation technique.
+            - superscript [ref=e261]:
+              - text: "["
+              - link "citation needed" [ref=e263] [cursor=pointer]:
+                - /url: /wiki/Wikipedia:Citation_needed
+              - text: "]"
+          - paragraph [ref=e264]:
+            - text: Note that for very small problems it is beneficial to replace the
+            - link "matrix inverse" [ref=e265] [cursor=pointer]:
+              - /url: /wiki/Matrix_inverse
+            - text: with the
+            - link "adjugate" [ref=e266] [cursor=pointer]:
+              - /url: /wiki/Adjugate_matrix
+            - text: ", which will yield the same iteration because it is equal to the inverse up to an irrelevant scale (the inverse of the determinant, specifically). The adjugate is easier to compute explicitly than the inverse (though the inverse is easier to apply to a vector for problems that aren't small), and is more numerically sound because it remains well defined as the eigenvalue converges."
+          - generic [ref=e267]:
+            - heading "Example" [level=2] [ref=e268]
+            - generic [ref=e269]:
+              - text: "["
+              - link "edit" [ref=e270] [cursor=pointer]:
+                - /url: /w/index.php?title=Rayleigh_quotient_iteration&action=edit&section=2
+              - text: "]"
+          - paragraph [ref=e271]: Consider the matrix
+          - definition [ref=e273]:
+            - generic [ref=e274]:
+              - math [ref=e276]:
+                - generic [ref=e279]:
+                  - generic [ref=e280]: A
+                  - generic [ref=e281]: =
+                  - generic [ref=e282]:
+                    - generic [ref=e283]: "["
+                    - generic [ref=e285]:
+                      - generic [ref=e286]:
+                        - generic [ref=e288]: "1"
+                        - generic [ref=e290]: "2"
+                        - generic [ref=e292]: "3"
+                      - generic [ref=e293]:
+                        - generic [ref=e295]: "1"
+                        - generic [ref=e297]: "2"
+                        - generic [ref=e299]: "1"
+                      - generic [ref=e300]:
+                        - generic [ref=e302]: "3"
+                        - generic [ref=e304]: "2"
+                        - generic [ref=e306]: "1"
+                    - generic [ref=e307]: "]"
+              - img [ref=e308]
+          - paragraph [ref=e309]:
+            - text: for which the exact eigenvalues are
+            - generic [ref=e310]:
+              - math [ref=e312]:
+                - generic [ref=e315]:
+                  - generic [ref=e316]:
+                    - generic [ref=e317]: λ
+                    - generic [ref=e319]: "1"
+                  - generic [ref=e320]: =
+                  - generic [ref=e321]: "3"
+                  - generic [ref=e322]: +
+                  - generic [ref=e325]: "5"
+              - img [ref=e326]
+            - text: ","
+            - generic [ref=e327]:
+              - math [ref=e329]:
+                - generic [ref=e332]:
+                  - generic [ref=e333]:
+                    - generic [ref=e334]: λ
+                    - generic [ref=e336]: "2"
+                  - generic [ref=e337]: =
+                  - generic [ref=e338]: "3"
+                  - generic [ref=e339]: −
+                  - generic [ref=e342]: "5"
+              - img [ref=e343]
+            - text: and
+            - generic [ref=e344]:
+              - math [ref=e346]:
+                - generic [ref=e349]:
+                  - generic [ref=e350]:
+                    - generic [ref=e351]: λ
+                    - generic [ref=e353]: "3"
+                  - generic [ref=e354]: =
+                  - generic [ref=e355]: −
+                  - generic [ref=e356]: "2"
+              - img [ref=e357]
+            - text: ", with corresponding eigenvectors"
+          - definition [ref=e359]:
+            - generic [ref=e360]:
+              - math [ref=e362]:
+                - generic [ref=e365]:
+                  - generic [ref=e366]:
+                    - generic [ref=e367]: v
+                    - generic [ref=e369]: "1"
+                  - generic [ref=e370]: =
+                  - generic [ref=e371]:
+                    - generic [ref=e372]: "["
+                    - generic [ref=e374]:
+                      - generic [ref=e377]: "1"
+                      - generic [ref=e379]:
+                        - generic [ref=e380]: φ
+                        - generic [ref=e381]: −
+                        - generic [ref=e382]: "1"
+                      - generic [ref=e385]: "1"
+                    - generic [ref=e386]: "]"
+              - img [ref=e387]
+            - text: ","
+            - generic [ref=e388]:
+              - math [ref=e390]:
+                - generic [ref=e393]:
+                  - generic [ref=e394]:
+                    - generic [ref=e395]: v
+                    - generic [ref=e397]: "2"
+                  - generic [ref=e398]: =
+                  - generic [ref=e399]:
+                    - generic [ref=e400]: "["
+                    - generic [ref=e402]:
+                      - generic [ref=e405]: "1"
+                      - generic [ref=e407]:
+                        - generic [ref=e408]: −
+                        - generic [ref=e409]: φ
+                      - generic [ref=e412]: "1"
+                    - generic [ref=e413]: "]"
+              - img [ref=e414]
+            - text: and
+            - generic [ref=e415]:
+              - math [ref=e417]:
+                - generic [ref=e420]:
+                  - generic [ref=e421]:
+                    - generic [ref=e422]: v
+                    - generic [ref=e424]: "3"
+                  - generic [ref=e425]: =
+                  - generic [ref=e426]:
+                    - generic [ref=e427]: "["
+                    - generic [ref=e429]:
+                      - generic [ref=e432]: "1"
+                      - generic [ref=e435]: "0"
+                      - generic [ref=e438]: "1"
+                    - generic [ref=e439]: "]"
+              - img [ref=e440]
+            - text: .
+          - paragraph [ref=e441]:
+            - text: (where
+            - generic [ref=e442]:
+              - math [ref=e444]:
+                - generic [ref=e448]:
+                  - generic [ref=e449]: φ
+                  - generic [ref=e450]: =
+                  - generic [ref=e452]:
+                    - generic [ref=e453]:
+                      - generic [ref=e454]: "1"
+                      - generic [ref=e455]: +
+                      - generic [ref=e458]: "5"
+                    - generic [ref=e459]: "2"
+              - img [ref=e460]
+            - text: is the golden ratio).
+          - paragraph [ref=e461]:
+            - text: The largest eigenvalue is
+            - generic [ref=e462]:
+              - math [ref=e464]:
+                - generic [ref=e467]:
+                  - generic [ref=e468]:
+                    - generic [ref=e469]: λ
+                    - generic [ref=e471]: "1"
+                  - generic [ref=e472]: ≈
+                  - generic [ref=e473]: "5.2361"
+              - img [ref=e474]
+            - text: and corresponds to any eigenvector proportional to
+            - generic [ref=e475]:
+              - math [ref=e477]:
+                - generic [ref=e480]:
+                  - generic [ref=e481]:
+                    - generic [ref=e482]: v
+                    - generic [ref=e484]: "1"
+                  - generic [ref=e485]: ≈
+                  - generic [ref=e486]:
+                    - generic [ref=e487]: "["
+                    - generic [ref=e489]:
+                      - generic [ref=e492]: "1"
+                      - generic [ref=e495]: "0.6180"
+                      - generic [ref=e498]: "1"
+                    - generic [ref=e499]: "]"
+                  - generic [ref=e500]: .
+              - img [ref=e501]
+          - paragraph [ref=e502]: We begin with an initial eigenvalue guess of
+          - definition [ref=e504]:
+            - generic [ref=e505]:
+              - math [ref=e507]:
+                - generic [ref=e510]:
+                  - generic [ref=e511]:
+                    - generic [ref=e512]: b
+                    - generic [ref=e514]: "0"
+                  - generic [ref=e515]: =
+                  - generic [ref=e516]:
+                    - generic [ref=e517]: "["
+                    - generic [ref=e519]:
+                      - generic [ref=e522]: "1"
+                      - generic [ref=e525]: "1"
+                      - generic [ref=e528]: "1"
+                    - generic [ref=e529]: "]"
+                  - generic [ref=e530]: ","
+                  - generic [ref=e531]:
+                    - generic [ref=e532]: μ
+                    - generic [ref=e534]: "0"
+                  - generic [ref=e535]: =
+                  - generic [ref=e536]: "200"
+              - img [ref=e537]
+            - text: .
+          - paragraph [ref=e538]: Then, the first iteration yields
+          - definition [ref=e540]:
+            - generic [ref=e541]:
+              - math [ref=e543]:
+                - generic [ref=e546]:
+                  - generic [ref=e547]:
+                    - generic [ref=e548]: b
+                    - generic [ref=e550]: "1"
+                  - generic [ref=e551]: ≈
+                  - generic [ref=e552]:
+                    - generic [ref=e553]: "["
+                    - generic [ref=e555]:
+                      - generic [ref=e557]:
+                        - generic [ref=e558]: −
+                        - generic [ref=e559]: "0.57927"
+                      - generic [ref=e561]:
+                        - generic [ref=e562]: −
+                        - generic [ref=e563]: "0.57348"
+                      - generic [ref=e565]:
+                        - generic [ref=e566]: −
+                        - generic [ref=e567]: "0.57927"
+                    - generic [ref=e568]: "]"
+                  - generic [ref=e569]: ","
+                  - generic [ref=e570]:
+                    - generic [ref=e571]: μ
+                    - generic [ref=e573]: "1"
+                  - generic [ref=e574]: ≈
+                  - generic [ref=e575]: "5.3355"
+              - img [ref=e576]
+          - paragraph [ref=e577]: the second iteration,
+          - definition [ref=e579]:
+            - generic [ref=e580]:
+              - math [ref=e582]:
+                - generic [ref=e585]:
+                  - generic [ref=e586]:
+                    - generic [ref=e587]: b
+                    - generic [ref=e589]: "2"
+                  - generic [ref=e590]: ≈
+                  - generic [ref=e591]:
+                    - generic [ref=e592]: "["
+                    - generic [ref=e594]:
+                      - generic [ref=e597]: "0.64676"
+                      - generic [ref=e600]: "0.40422"
+                      - generic [ref=e603]: "0.64676"
+                    - generic [ref=e604]: "]"
+                  - generic [ref=e605]: ","
+                  - generic [ref=e606]:
+                    - generic [ref=e607]: μ
+                    - generic [ref=e609]: "2"
+                  - generic [ref=e610]: ≈
+                  - generic [ref=e611]: "5.2418"
+              - img [ref=e612]
+          - paragraph [ref=e613]: and the third,
+          - definition [ref=e615]:
+            - generic [ref=e616]:
+              - math [ref=e618]:
+                - generic [ref=e621]:
+                  - generic [ref=e622]:
+                    - generic [ref=e623]: b
+                    - generic [ref=e625]: "3"
+                  - generic [ref=e626]: ≈
+                  - generic [ref=e627]:
+                    - generic [ref=e628]: "["
+                    - generic [ref=e630]:
+                      - generic [ref=e632]:
+                        - generic [ref=e633]: −
+                        - generic [ref=e634]: "0.64793"
+                      - generic [ref=e636]:
+                        - generic [ref=e637]: −
+                        - generic [ref=e638]: "0.40045"
+                      - generic [ref=e640]:
+                        - generic [ref=e641]: −
+                        - generic [ref=e642]: "0.64793"
+                    - generic [ref=e643]: "]"
+                  - generic [ref=e644]: ","
+                  - generic [ref=e645]:
+                    - generic [ref=e646]: μ
+                    - generic [ref=e648]: "3"
+                  - generic [ref=e649]: ≈
+                  - generic [ref=e650]: "5.2361"
+              - img [ref=e651]
+          - paragraph [ref=e652]: from which the cubic convergence is evident.
+          - generic [ref=e653]:
+            - heading "Octave implementation" [level=2] [ref=e654]
+            - generic [ref=e655]:
+              - text: "["
+              - link "edit" [ref=e656] [cursor=pointer]:
+                - /url: /w/index.php?title=Rayleigh_quotient_iteration&action=edit&section=3
+              - text: "]"
+          - paragraph [ref=e657]:
+            - text: The following is a simple implementation of the algorithm in
+            - link "Octave" [ref=e658] [cursor=pointer]:
+              - /url: /wiki/GNU_Octave
+            - text: .
+          - generic [ref=e660]: function x = rayleigh(A, epsilon, mu, x) x = x / norm(x); % the backslash operator in Octave solves a linear system y = (A - mu * eye(rows(A))) \ x; lambda = y' * x; mu = mu + 1 / lambda err = norm(y - lambda * x) / norm(y) while err > epsilon x = y / norm(y); y = (A - mu * eye(rows(A))) \ x; lambda = y' * x; mu = mu + 1 / lambda err = norm(y - lambda * x) / norm(y) end end
+          - generic [ref=e661]:
+            - heading "See also" [level=2] [ref=e662]
+            - generic [ref=e663]:
+              - text: "["
+              - link "edit" [ref=e664] [cursor=pointer]:
+                - /url: /w/index.php?title=Rayleigh_quotient_iteration&action=edit&section=4
+              - text: "]"
+          - list [ref=e665]:
+            - listitem [ref=e666]:
+              - link "Power iteration" [ref=e667] [cursor=pointer]:
+                - /url: /wiki/Power_iteration
+            - listitem [ref=e668]:
+              - link "Inverse iteration" [ref=e669] [cursor=pointer]:
+                - /url: /wiki/Inverse_iteration
+          - generic [ref=e670]:
+            - heading "References" [level=2] [ref=e671]
+            - generic [ref=e672]:
+              - text: "["
+              - link "edit" [ref=e673] [cursor=pointer]:
+                - /url: /w/index.php?title=Rayleigh_quotient_iteration&action=edit&section=5
+              - text: "]"
+          - list [ref=e674]:
+            - listitem [ref=e675]:
+              - text: Lloyd N. Trefethen and David Bau, III, Numerical Linear Algebra, Society for Industrial and Applied Mathematics, 1997.
+              - link "ISBN" [ref=e676] [cursor=pointer]:
+                - /url: /wiki/ISBN_(identifier)
+              - link "0-89871-361-7" [ref=e677] [cursor=pointer]:
+                - /url: /wiki/Special:BookSources/0-89871-361-7
+              - text: .
+            - listitem [ref=e678]:
+              - text: Rainer Kress, "Numerical Analysis", Springer, 1991.
+              - link "ISBN" [ref=e679] [cursor=pointer]:
+                - /url: /wiki/ISBN_(identifier)
+              - link "0-387-98408-9" [ref=e680] [cursor=pointer]:
+                - /url: /wiki/Special:BookSources/0-387-98408-9
+          - navigation "Numerical linear algebra" [ref=e681]:
+            - table [ref=e682]:
+              - rowgroup [ref=e683]:
+                - row "[hide] v · t · e Numerical linear algebra" [ref=e684]:
+                  - columnheader "[hide] v · t · e Numerical linear algebra" [ref=e685]:
+                    - button "[hide]" [expanded] [ref=e686] [cursor=pointer]
+                    - list [ref=e688]:
+                      - listitem [ref=e689]:
+                        - link "v" [ref=e690] [cursor=pointer]:
+                          - /url: /wiki/Template:Numerical_linear_algebra
+                        - text: ·
+                      - listitem [ref=e691]:
+                        - link "t" [ref=e692] [cursor=pointer]:
+                          - /url: /wiki/Template_talk:Numerical_linear_algebra
+                        - text: ·
+                      - listitem [ref=e693]:
+                        - link "e" [ref=e694] [cursor=pointer]:
+                          - /url: /wiki/Special:EditPage/Template:Numerical_linear_algebra
+                    - link "Numerical linear algebra" [ref=e696] [cursor=pointer]:
+                      - /url: /wiki/Numerical_linear_algebra
+                - row "Key concepts Floating point · Numerical stability" [ref=e697]:
+                  - rowheader "Key concepts" [ref=e698]
+                  - cell "Floating point · Numerical stability" [ref=e699]:
+                    - list [ref=e701]:
+                      - listitem [ref=e702]:
+                        - link "Floating point" [ref=e703] [cursor=pointer]:
+                          - /url: /wiki/Floating_point
+                        - text: ·
+                      - listitem [ref=e704]:
+                        - link "Numerical stability" [ref=e705] [cursor=pointer]:
+                          - /url: /wiki/Numerical_stability
+                - row "Problems System of linear equations · Matrix decompositions · Matrix multiplication (algorithms) · Matrix splitting · Sparse problems" [ref=e706]:
+                  - rowheader "Problems" [ref=e707]
+                  - cell "System of linear equations · Matrix decompositions · Matrix multiplication (algorithms) · Matrix splitting · Sparse problems" [ref=e708]:
+                    - list [ref=e710]:
+                      - listitem [ref=e711]:
+                        - link "System of linear equations" [ref=e712] [cursor=pointer]:
+                          - /url: /wiki/System_of_linear_equations
+                        - text: ·
+                      - listitem [ref=e713]:
+                        - link "Matrix decompositions" [ref=e714] [cursor=pointer]:
+                          - /url: /wiki/Matrix_decomposition
+                        - text: ·
+                      - listitem [ref=e715]:
+                        - link "Matrix multiplication" [ref=e716] [cursor=pointer]:
+                          - /url: /wiki/Matrix_multiplication
+                        - text: (
+                        - link "algorithms" [ref=e717] [cursor=pointer]:
+                          - /url: /wiki/Matrix_multiplication_algorithm
+                        - text: ) ·
+                      - listitem [ref=e718]:
+                        - link "Matrix splitting" [ref=e719] [cursor=pointer]:
+                          - /url: /wiki/Matrix_splitting
+                        - text: ·
+                      - listitem [ref=e720]:
+                        - link "Sparse problems" [ref=e721] [cursor=pointer]:
+                          - /url: /wiki/Sparse_matrix
+                - row "Hardware CPU cache · TLB · Cache-oblivious algorithm · SIMD · Multiprocessing" [ref=e722]:
+                  - rowheader "Hardware" [ref=e723]
+                  - cell "CPU cache · TLB · Cache-oblivious algorithm · SIMD · Multiprocessing" [ref=e724]:
+                    - list [ref=e726]:
+                      - listitem [ref=e727]:
+                        - link "CPU cache" [ref=e728] [cursor=pointer]:
+                          - /url: /wiki/CPU_cache
+                        - text: ·
+                      - listitem [ref=e729]:
+                        - link "TLB" [ref=e730] [cursor=pointer]:
+                          - /url: /wiki/Translation_lookaside_buffer
+                        - text: ·
+                      - listitem [ref=e731]:
+                        - link "Cache-oblivious algorithm" [ref=e732] [cursor=pointer]:
+                          - /url: /wiki/Cache-oblivious_algorithm
+                        - text: ·
+                      - listitem [ref=e733]:
+                        - link "SIMD" [ref=e734] [cursor=pointer]:
+                          - /url: /wiki/Single_instruction,_multiple_data
+                        - text: ·
+                      - listitem [ref=e735]:
+                        - link "Multiprocessing" [ref=e736] [cursor=pointer]:
+                          - /url: /wiki/Multiprocessing
+                - row "Software ATLAS · MATLAB · Basic Linear Algebra Subprograms (BLAS) · LAPACK · Specialized libraries" [ref=e737]:
+                  - rowheader "Software" [ref=e738]
+                  - cell "ATLAS · MATLAB · Basic Linear Algebra Subprograms (BLAS) · LAPACK · Specialized libraries" [ref=e739]:
+                    - list [ref=e741]:
+                      - listitem [ref=e742]:
+                        - link "ATLAS" [ref=e743] [cursor=pointer]:
+                          - /url: /wiki/Automatically_Tuned_Linear_Algebra_Software
+                        - text: ·
+                      - listitem [ref=e744]:
+                        - link "MATLAB" [ref=e745] [cursor=pointer]:
+                          - /url: /wiki/MATLAB
+                        - text: ·
+                      - listitem [ref=e746]:
+                        - link "Basic Linear Algebra Subprograms (BLAS)" [ref=e747] [cursor=pointer]:
+                          - /url: /wiki/Basic_Linear_Algebra_Subprograms
+                        - text: ·
+                      - listitem [ref=e748]:
+                        - link "LAPACK" [ref=e749] [cursor=pointer]:
+                          - /url: /wiki/LAPACK
+                        - text: ·
+                      - listitem [ref=e750]:
+                        - link "Specialized libraries" [ref=e751] [cursor=pointer]:
+                          - /url: /wiki/Comparison_of_linear_algebra_libraries
+        - generic [ref=e753]:
+          - link "Category" [ref=e754] [cursor=pointer]:
+            - /url: /wiki/Help:Category
+          - text: ":"
+          - list [ref=e755]:
+            - listitem [ref=e756]:
+              - link "Numerical linear algebra" [ref=e757] [cursor=pointer]:
+                - /url: /wiki/Category:Numerical_linear_algebra
+    - contentinfo [ref=e759]:
+      - list [ref=e760]:
+        - listitem [ref=e761]: This page was last edited on 14 December 2025, at 14:20 (UTC).
+        - listitem [ref=e762]:
+          - text: Text is available under the
+          - link "Creative Commons Attribution-ShareAlike 4.0 License" [ref=e763] [cursor=pointer]:
+            - /url: /wiki/Wikipedia:Text_of_the_Creative_Commons_Attribution-ShareAlike_4.0_International_License
+          - text: ; additional terms may apply. By using this site, you agree to the
+          - link "Terms of Use" [ref=e764] [cursor=pointer]:
+            - /url: https://foundation.wikimedia.org/wiki/Special:MyLanguage/Policy:Terms_of_Use
+          - text: and
+          - link "Privacy Policy" [ref=e765] [cursor=pointer]:
+            - /url: https://foundation.wikimedia.org/wiki/Special:MyLanguage/Policy:Privacy_policy
+          - text: . Wikipedia® is a registered trademark of the
+          - link "Wikimedia Foundation, Inc." [ref=e766] [cursor=pointer]:
+            - /url: https://wikimediafoundation.org/
+          - text: ", a non-profit organization."
+      - list:
+        - listitem [ref=e767]:
+          - link "Privacy policy" [ref=e768] [cursor=pointer]:
+            - /url: https://foundation.wikimedia.org/wiki/Special:MyLanguage/Policy:Privacy_policy
+        - listitem [ref=e769]:
+          - link "About Wikipedia" [ref=e770] [cursor=pointer]:
+            - /url: /wiki/Wikipedia:About
+        - listitem [ref=e771]:
+          - link "Disclaimers" [ref=e772] [cursor=pointer]:
+            - /url: /wiki/Wikipedia:General_disclaimer
+        - listitem [ref=e773]:
+          - link "Contact Wikipedia" [ref=e774] [cursor=pointer]:
+            - /url: //en.wikipedia.org/wiki/Wikipedia:Contact_us
+        - listitem [ref=e775]:
+          - link "Legal & safety contacts" [ref=e776] [cursor=pointer]:
+            - /url: https://foundation.wikimedia.org/wiki/Special:MyLanguage/Legal:Wikimedia_Foundation_Legal_and_Safety_Contact_Information
+        - listitem [ref=e777]:
+          - link "Code of Conduct" [ref=e778] [cursor=pointer]:
+            - /url: https://foundation.wikimedia.org/wiki/Special:MyLanguage/Policy:Universal_Code_of_Conduct
+        - listitem [ref=e779]:
+          - link "Developers" [ref=e780] [cursor=pointer]:
+            - /url: https://developer.wikimedia.org
+        - listitem [ref=e781]:
+          - link "Statistics" [ref=e782] [cursor=pointer]:
+            - /url: https://stats.wikimedia.org/#/en.wikipedia.org
+        - listitem [ref=e783]:
+          - link "Cookie statement" [ref=e784] [cursor=pointer]:
+            - /url: https://foundation.wikimedia.org/wiki/Special:MyLanguage/Policy:Cookie_statement
+        - listitem [ref=e785]:
+          - link "Mobile view" [ref=e786] [cursor=pointer]:
+            - /url: //en.wikipedia.org/w/index.php?title=Rayleigh_quotient_iteration&mobileaction=toggle_view_mobile
+      - list [ref=e787]:
+        - listitem [ref=e788]:
+          - link "Wikimedia Foundation" [ref=e789] [cursor=pointer]:
+            - /url: https://www.wikimedia.org/
+            - img "Wikimedia Foundation" [ref=e791]
+        - listitem [ref=e792]:
+          - link "Powered by MediaWiki" [ref=e793] [cursor=pointer]:
+            - /url: https://www.mediawiki.org/
+            - img "Powered by MediaWiki" [ref=e795]
+  - generic [ref=e796]:
+    - list
