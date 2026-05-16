@@ -13,7 +13,7 @@
  */
 
 import { MSG, defaultVoiceForModel } from '../shared/constants.js';
-import { ensureOffscreen } from './offscreen-manager.js';
+import { ensureOffscreen, closeOffscreen } from './offscreen-manager.js';
 import { initContextMenus } from './context-menus.js';
 import { initCommands } from './commands.js';
 import { initStateSync } from './state-manager.js';
@@ -31,6 +31,28 @@ interface ArticleData {
 initContextMenus();
 initCommands();
 initStateSync();
+
+// Close any stale offscreen document from a previous extension session
+closeOffscreen().catch(() => {});
+
+// ── Offscreen ready tracking ───────────────────────────────────────────────
+
+let offscreenReady = false;
+const ttsBufferQueue: Array<Record<string, unknown>> = [];
+
+function flushTtsBufferQueue(): void {
+  while (ttsBufferQueue.length > 0) {
+    const block = ttsBufferQueue.shift();
+    chrome.runtime.sendMessage({
+      target: 'offscreen',
+      type: MSG.TTS_BUFFER,
+      block,
+      _forwarded: true
+    }).catch((e: Error) => {
+      log('bg', 'error', 'Failed to forward BLOCK_READY to offscreen:', e.message);
+    });
+  }
+}
 
 // ── Helper: forward to active tab's content script ─────────────────────────
 
@@ -51,6 +73,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   setModuleStatus('bg', 'active');
   log('bg', 'log', 'Received:', message.type || '(no type)', '| target:', message.target || '(no target)');
+
+  // ── Offscreen announces it's ready ──
+  if (message.type === MSG.OFFSCREEN_READY) {
+    log('bg', 'log', 'Offscreen ready');
+    offscreenReady = true;
+    flushTtsBufferQueue();
+    return false;
+  }
 
   // ── Popup asks us to create offscreen doc ──
   if (message.type === MSG.ENSURE_OFFSCREEN) {
@@ -73,14 +103,19 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === MSG.BLOCK_READY) {
     log('bg', 'log', 'Streaming block', message.block?.index, '| last:', message.block?.isLastBlock);
     ensureOffscreen().then(() => {
-      chrome.runtime.sendMessage({
-        target: 'offscreen',
-        type: MSG.TTS_BUFFER,
-        block: message.block,
-        _forwarded: true
-      }).catch((e: Error) => {
-        log('bg', 'error', 'Failed to forward BLOCK_READY to offscreen:', e.message);
-      });
+      if (offscreenReady) {
+        chrome.runtime.sendMessage({
+          target: 'offscreen',
+          type: MSG.TTS_BUFFER,
+          block: message.block,
+          _forwarded: true
+        }).catch((e: Error) => {
+          log('bg', 'error', 'Failed to forward BLOCK_READY to offscreen:', e.message);
+        });
+      } else {
+        log('bg', 'log', 'Queueing BLOCK_READY until offscreen is ready');
+        ttsBufferQueue.push(message.block);
+      }
     }).catch((e: Error) => {
       log('bg', 'error', 'ensureOffscreen failed for stream:', e.message);
     });

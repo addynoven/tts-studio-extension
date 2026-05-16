@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Mock modules BEFORE any imports
 vi.mock('../../src/background/offscreen-manager.js', () => ({
-  ensureOffscreen: vi.fn(async () => {})
+  ensureOffscreen: vi.fn(async () => {}),
+  closeOffscreen: vi.fn(async () => {})
 }));
 
 vi.mock('../../src/background/context-menus.js', () => ({
