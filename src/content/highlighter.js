@@ -250,6 +250,22 @@ function scrollIntoViewIfNeeded(el) {
   }
 }
 
+// ── Streaming mode: highlight a specific element directly ──────────────────
+
+/**
+ * Highlight a specific DOM element directly.
+ * Used in streaming mode where the caller already has the element reference.
+ * @param {Element} el
+ */
+export function highlightElement(el) {
+  if (!el) return;
+  ensureStyles();
+  clearHighlightInternal();
+  el.classList.add(HIGHLIGHT_CLASS);
+  currentHighlightEl = el;
+  scrollIntoViewIfNeeded(el);
+}
+
 // ── Public clear ───────────────────────────────────────────────────────────
 
 export function clearHighlight() {

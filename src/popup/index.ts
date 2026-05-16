@@ -122,12 +122,12 @@ async function init(): Promise<void> {
 // ─- Actions ────────────────────────────────────────────────────────────────
 
 async function extractArticle(): Promise<void> {
-  setStatus('loading', 'Extracting article...');
+  setStatus('loading', 'Starting read-aloud stream...');
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab) throw new Error('No active tab');
 
-    // Ensure content script is injected (same fix as context menu)
+    // Ensure content script is injected
     try {
       await chrome.scripting.executeScript({
         target: { tabId: tab.id! },
@@ -138,25 +138,13 @@ async function extractArticle(): Promise<void> {
       console.warn('Could not inject content script:', e);
     }
 
-    const response = await chrome.tabs.sendMessage(tab.id!, { type: MSG.EXTRACT_ARTICLE });
+    // Start streaming read-aloud
+    await chrome.tabs.sendMessage(tab.id!, { type: MSG.STREAM_START });
+    setStatus('playing', 'Reading article aloud...');
 
-    if (response && response.text) {
-      extractionPanel.style.display = 'block';
-      extractResultText.value = response.text as string;
-
-      // Calculate approximate blocks (paragraphs)
-      const blocks = (response.text as string).split('\n\n').filter(b => b.trim().length > 0);
-      extractBlockCount.textContent = String(blocks.length);
-
-      textInput.value = response.text as string;
-      charCount.textContent = String((response.text as string).length);
-      setStatus('idle', `Extracted ${(response.text as string).length} chars (${blocks.length} blocks)`);
-    } else {
-      setStatus('error', 'No article found on this page');
-    }
   } catch (error) {
-    console.error('Extraction failed:', error);
-    setStatus('error', 'Failed to extract article');
+    console.error('Stream start failed:', error);
+    setStatus('error', 'Failed to start reading');
   }
 }
 

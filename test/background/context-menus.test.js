@@ -67,11 +67,11 @@ describe('context-menus', () => {
     expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();
   });
 
-  it('handles read-article by sending EXTRACT_ARTICLE to tab', async () => {
+  it('handles read-article by sending STREAM_START to tab', async () => {
     await clickHandler({ menuItemId: 'tts-read-article' });
     expect(chrome.tabs.sendMessage).toHaveBeenCalledWith(
       1,
-      expect.objectContaining({ type: MSG.EXTRACT_ARTICLE })
+      expect.objectContaining({ type: MSG.STREAM_START })
     );
   });
 });

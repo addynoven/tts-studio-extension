@@ -106,6 +106,13 @@ describe('constants', () => {
       expect(typeof MSG.HIGHLIGHT_CHUNK).toBe('string');
       expect(typeof MSG.CLEAR_HIGHLIGHTS).toBe('string');
       expect(typeof MSG.ENSURE_OFFSCREEN).toBe('string');
+      expect(typeof MSG.STREAM_START).toBe('string');
+      expect(typeof MSG.REQUEST_BLOCK).toBe('string');
+      expect(typeof MSG.BLOCK_READY).toBe('string');
+      expect(typeof MSG.TTS_BUFFER).toBe('string');
+      expect(typeof MSG.STATUS_NEED_BLOCK).toBe('string');
+      expect(typeof MSG.HIGHLIGHT_BLOCK).toBe('string');
+      expect(typeof MSG.STREAM_END).toBe('string');
     });
 
     it('has unique message type values', () => {

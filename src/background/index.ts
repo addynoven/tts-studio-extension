@@ -5,6 +5,11 @@
  * NOTE: This is a CENTRAL MESSAGE ROUTER. It must handle ALL messages
  * regardless of target field, because it forwards messages between
  * popup ↔ offscreen ↔ content scripts.
+ *
+ * Streaming protocol additions:
+ *   popup/command → STREAM_START → content
+ *   content → BLOCK_READY → offscreen (as TTS_BUFFER)
+ *   offscreen → STATUS_NEED_BLOCK → content (as REQUEST_BLOCK)
  */
 
 import { MSG, defaultVoiceForModel } from '../shared/constants.js';
@@ -27,8 +32,18 @@ initContextMenus();
 initCommands();
 initStateSync();
 
+// ── Helper: forward to active tab's content script ─────────────────────────
+
+function forwardToContent(message: Record<string, unknown>): void {
+  chrome.tabs.query({ active: true, currentWindow: true }).then((tabs) => {
+    const tab = tabs[0];
+    if (tab?.id) {
+      chrome.tabs.sendMessage(tab.id, { ...message, _forwarded: true }).catch(() => {});
+    }
+  });
+}
+
 // ── Message router ─────────────────────────────────────────────────────────
-// The background sees ALL messages and routes them. Do NOT filter by target.
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   // Prevent infinite forwarding loops — skip messages we already forwarded
@@ -37,7 +52,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   setModuleStatus('bg', 'active');
   log('bg', 'log', 'Received:', message.type || '(no type)', '| target:', message.target || '(no target)');
 
-  // Popup asks us to create offscreen doc before it sends messages directly
+  // ── Popup asks us to create offscreen doc ──
   if (message.type === MSG.ENSURE_OFFSCREEN) {
     ensureOffscreen()
       .then(() => {
@@ -51,10 +66,46 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         setModuleStatus('offscreen', 'error');
         sendResponse({ ok: false, error: e.message });
       });
-    return true; // keep channel open for async response
+    return true;
   }
 
-  // Popup → offscreen (generate / stop)
+  // ── Streaming: BLOCK_READY from content → forward to offscreen as TTS_BUFFER ──
+  if (message.type === MSG.BLOCK_READY) {
+    log('bg', 'log', 'Streaming block', message.block?.index, '| last:', message.block?.isLastBlock);
+    ensureOffscreen().then(() => {
+      chrome.runtime.sendMessage({
+        target: 'offscreen',
+        type: MSG.TTS_BUFFER,
+        block: message.block,
+        _forwarded: true
+      }).catch((e: Error) => {
+        log('bg', 'error', 'Failed to forward BLOCK_READY to offscreen:', e.message);
+      });
+    }).catch((e: Error) => {
+      log('bg', 'error', 'ensureOffscreen failed for stream:', e.message);
+    });
+    return false;
+  }
+
+  // ── Streaming: STATUS_NEED_BLOCK from offscreen → forward to content as REQUEST_BLOCK ──
+  if (message.type === MSG.STATUS_NEED_BLOCK) {
+    log('bg', 'log', 'Offscreen needs block', message.nextBlockIndex);
+    forwardToContent({
+      type: MSG.REQUEST_BLOCK,
+      blockIndex: message.nextBlockIndex,
+      _forwarded: true
+    });
+    return false;
+  }
+
+  // ── Streaming: STREAM_START from popup/commands → forward to content ──
+  if (message.type === MSG.STREAM_START) {
+    log('bg', 'log', 'STREAM_START received, forwarding to content');
+    forwardToContent({ ...message, _forwarded: true });
+    return false;
+  }
+
+  // ── Popup → offscreen (manual mode: generate / stop / pause / resume) ──
   if (message.target === 'offscreen') {
     log('bg', 'log', 'Forwarding to offscreen:', message.type);
     ensureOffscreen().then(() => {
@@ -72,7 +123,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return false;
   }
 
-  // Offscreen → popup (status updates, errors, progress)
+  // ── Offscreen → popup (status updates, errors, progress) ──
   if (message.target === 'popup') {
     log('bg', 'log', 'Forwarding to popup:', message.type);
     chrome.runtime.sendMessage({ ...message, _forwarded: true }).catch(() => {
@@ -81,19 +132,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return false;
   }
 
-  // Offscreen → content script (word timing, highlighting)
+  // ── Offscreen → content script (highlighting) ──
   if (message.target === 'content') {
     log('bg', 'log', 'Forwarding to content:', message.type);
-    chrome.tabs.query({ active: true, currentWindow: true }).then((tabs) => {
-      const tab = tabs[0];
-      if (tab?.id) {
-        chrome.tabs.sendMessage(tab.id, { ...message, _forwarded: true }).catch(() => {});
-      }
-    });
+    forwardToContent({ ...message, _forwarded: true });
     return false;
   }
 
-  // Content script → background (article extracted, now trigger TTS)
+  // ── Content script → background (legacy batch mode) ──
   if (message.type === MSG.ARTICLE_EXTRACTED) {
     console.log('[TTS Studio] BG received ARTICLE_EXTRACTED:', message.article?.title);
     log('bg', 'log', 'Article extracted:', message.article?.title);
