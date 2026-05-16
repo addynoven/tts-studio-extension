@@ -24,6 +24,7 @@ export function initCommands() {
     switch (command) {
       case 'read-article':
         if (tabId) {
+          await ensureContentScript(tabId);
           chrome.tabs.sendMessage(tabId, { type: MSG.EXTRACT_ARTICLE }).catch(() => {});
         }
         showToast(tabId, '🔊 Reading article...');
@@ -85,3 +86,19 @@ function showToast(tabId, message) {
     args: [message]
   });
 }
+
+/**
+ * Ensure the content script is injected on the given tab.
+ */
+async function ensureContentScript(tabId) {
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ['content.js']
+    });
+  } catch (e) {
+    console.warn('[TTS Studio] Could not inject content script:', e.message);
+  }
+  await new Promise(r => setTimeout(r, 200));
+}
+

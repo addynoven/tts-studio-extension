@@ -68,17 +68,34 @@ async function handleMenuClick(info) {
     }
 
     case 'tts-read-article': {
-      console.log('[TTS Studio] Read article menu clicked');
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      console.log('[TTS Studio] Active tab:', tab?.id, tab?.url);
-      if (tab?.id) {
-        chrome.tabs.sendMessage(tab.id, { type: MSG.EXTRACT_ARTICLE })
-          .then(() => console.log('[TTS Studio] EXTRACT_ARTICLE sent to tab', tab.id))
-          .catch((e) => console.error('[TTS Studio] EXTRACT_ARTICLE failed:', e.message));
-      } else {
-        console.warn('[TTS Studio] No active tab found');
-      }
+      if (!tab?.id) break;
+
+      // Ensure content script is injected (handles tabs open before extension reload)
+      await ensureContentScript(tab.id);
+
+      chrome.tabs.sendMessage(tab.id, { type: MSG.EXTRACT_ARTICLE })
+        .catch((e) => console.error('[TTS Studio] EXTRACT_ARTICLE failed:', e.message));
       break;
     }
   }
 }
+
+/**
+ * Ensure the content script is injected on the given tab.
+ * Always injects — Chrome won't double-execute if already loaded
+ * because our content script guards against re-init at the top.
+ */
+async function ensureContentScript(tabId) {
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ['content.js']
+    });
+  } catch (e) {
+    console.warn('[TTS Studio] Could not inject content script:', e.message);
+  }
+  // Wait for the script to initialize its message listeners
+  await new Promise(r => setTimeout(r, 200));
+}
+
