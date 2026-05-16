@@ -44,6 +44,7 @@ export function initContextMenus() {
  * Handle context menu item clicks.
  */
 async function handleMenuClick(info) {
+  console.log('[TTS Studio] Context menu clicked:', info.menuItemId);
   if (!info.menuItemId.startsWith('tts-')) return;
 
   const settings = await getSettings();
@@ -67,11 +68,15 @@ async function handleMenuClick(info) {
     }
 
     case 'tts-read-article': {
-      // TODO: Phase 1 — Integrate with content script extractor
-      // For now, fall back to selection or show "not yet implemented"
+      console.log('[TTS Studio] Read article menu clicked');
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      console.log('[TTS Studio] Active tab:', tab?.id, tab?.url);
       if (tab?.id) {
-        chrome.tabs.sendMessage(tab.id, { type: MSG.EXTRACT_ARTICLE });
+        chrome.tabs.sendMessage(tab.id, { type: MSG.EXTRACT_ARTICLE })
+          .then(() => console.log('[TTS Studio] EXTRACT_ARTICLE sent to tab', tab.id))
+          .catch((e) => console.error('[TTS Studio] EXTRACT_ARTICLE failed:', e.message));
+      } else {
+        console.warn('[TTS Studio] No active tab found');
       }
       break;
     }

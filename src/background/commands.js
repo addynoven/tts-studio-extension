@@ -24,14 +24,14 @@ export function initCommands() {
     switch (command) {
       case 'read-article':
         if (tabId) {
-          chrome.tabs.sendMessage(tabId, { type: MSG.EXTRACT_ARTICLE });
+          chrome.tabs.sendMessage(tabId, { type: MSG.EXTRACT_ARTICLE }).catch(() => {});
         }
         showToast(tabId, '🔊 Reading article...');
         break;
 
       case 'toggle-playback':
         if (tabId) {
-          chrome.tabs.sendMessage(tabId, { type: MSG.TTS_STOP });
+          chrome.tabs.sendMessage(tabId, { type: MSG.TTS_STOP }).catch(() => {});
         }
         break;
 
