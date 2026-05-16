@@ -42,7 +42,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["assets/lib/*", "assets/models/*", "assets/models/**/*"],
+      "resources": ["assets/lib/*", "assets/models/*", "assets/models/**/*", "mathmaps/*"],
       "matches": ["<all_urls>"]
     }
   ],
