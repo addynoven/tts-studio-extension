@@ -14,7 +14,6 @@ import { ensureContentScript } from './content-script-injector.js';
  */
 export function initContextMenus(): void {
   chrome.runtime.onInstalled.addListener(() => {
-    // Remove existing menus to avoid duplicates
     chrome.contextMenus.removeAll(() => {
       chrome.contextMenus.create({
         id: 'tts-read-selection',
@@ -30,7 +29,6 @@ export function initContextMenus(): void {
     });
   });
 
-  // Handle menu clicks
   chrome.contextMenus.onClicked.addListener(handleMenuClick);
 }
 
@@ -45,6 +43,7 @@ async function handleMenuClick(info: chrome.contextMenus.OnClickData): Promise<v
   const model = settings.defaultModel;
   const voice = settings.defaultVoice || defaultVoiceForModel(model);
   const speed = settings.defaultSpeed;
+  const useGPU = settings.executionProvider === 'webgpu';
 
   switch (info.menuItemId) {
     case 'tts-read-selection': {
@@ -60,8 +59,9 @@ async function handleMenuClick(info: chrome.contextMenus.OnClickData): Promise<v
         text: info.selectionText.trim(),
         model,
         voice,
-        speed: Number(speed)
-      });
+        speed: Number(speed),
+        useGPU
+      }).catch((e: Error) => console.error('[TTS Studio] TTS_GENERATE failed:', e.message));
       break;
     }
 
@@ -69,7 +69,6 @@ async function handleMenuClick(info: chrome.contextMenus.OnClickData): Promise<v
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (!tab?.id) break;
 
-      // Ensure content script is injected (handles tabs open before extension reload)
       await ensureContentScript(tab.id);
 
       chrome.tabs.sendMessage(tab.id, { type: MSG.STREAM_START })

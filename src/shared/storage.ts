@@ -1,6 +1,6 @@
 /**
  * Typed storage helpers with schema validation.
- * All persistence goes through here — no direct chrome.storage calls elsewhere.
+ * All persistence goes through here — single source of truth.
  */
 
 import { DEFAULTS } from './constants.js';
@@ -26,7 +26,8 @@ export interface Settings {
   defaultSpeed: number;
   sanitization: SanitizationSettings;
   highlight: HighlightSettings;
-  executionProvider: string;
+  executionProvider: 'webgpu' | 'wasm';
+  lastInputText?: string;
 }
 
 export interface Playback {
@@ -62,18 +63,44 @@ const DEFAULT_SETTINGS: Settings = {
     opacity: 0.4,
     autoScroll: true
   },
-  executionProvider: 'webgpu'
+  executionProvider: 'webgpu',
+  lastInputText: ''
 };
 
 // ── Settings ───────────────────────────────────────────────────────────────
 
 export async function getSettings(): Promise<Settings> {
-  const { settings } = await chrome.storage.local.get('settings');
-  return { ...DEFAULT_SETTINGS, ...(settings as Partial<Settings> || {}) };
+  const result = await chrome.storage.local.get(['settings', 'model', 'voice', 'speed', 'gpu', 'text']);
+  const storedSettings = (result.settings as Partial<Settings> | undefined) || {};
+
+  // Compatibility fallback for legacy top-level keys if settings wasn't saved yet
+  const defaultModel = storedSettings.defaultModel || (typeof result.model === 'string' ? result.model : DEFAULT_SETTINGS.defaultModel);
+  const defaultVoice = storedSettings.defaultVoice || (typeof result.voice === 'string' ? result.voice : DEFAULT_SETTINGS.defaultVoice);
+  const defaultSpeed = storedSettings.defaultSpeed ?? (typeof result.speed === 'number' ? result.speed : DEFAULT_SETTINGS.defaultSpeed);
+  const executionProvider = storedSettings.executionProvider || (result.gpu === false ? 'wasm' : 'webgpu');
+  const lastInputText = storedSettings.lastInputText ?? (typeof result.text === 'string' ? result.text : '');
+
+  return {
+    ...DEFAULT_SETTINGS,
+    ...storedSettings,
+    defaultModel,
+    defaultVoice,
+    defaultSpeed,
+    executionProvider,
+    lastInputText
+  };
 }
 
 export async function setSettings(settings: Settings): Promise<void> {
-  await chrome.storage.local.set({ settings });
+  await chrome.storage.local.set({
+    settings,
+    // Keep top-level keys in sync for backward compatibility
+    model: settings.defaultModel,
+    voice: settings.defaultVoice,
+    speed: settings.defaultSpeed,
+    gpu: settings.executionProvider === 'webgpu',
+    text: settings.lastInputText
+  });
 }
 
 export async function updateSettings(partial: Partial<Settings>): Promise<void> {
@@ -101,31 +128,32 @@ export async function getHistory(): Promise<HistoryEntry[]> {
   return (history as HistoryEntry[] | undefined) || [];
 }
 
-export async function addToHistory(entry: { url: string; title: string; lastSentence?: number; totalSentences?: number }): Promise<void> {
+export async function addToHistory(entry: Omit<HistoryEntry, 'date' | 'domain'>): Promise<void> {
   const history = await getHistory();
+  const domain = new URL(entry.url).hostname;
+  const newEntry: HistoryEntry = {
+    ...entry,
+    domain,
+    date: Date.now()
+  };
+
   const filtered = history.filter(h => h.url !== entry.url);
-  filtered.unshift({
-    url: entry.url,
-    title: entry.title,
-    domain: new URL(entry.url).hostname,
-    date: Date.now(),
-    lastSentence: entry.lastSentence || 0,
-    totalSentences: entry.totalSentences || 0
-  });
-  await chrome.storage.local.set({ history: filtered.slice(0, MAX_HISTORY) });
+  const updated = [newEntry, ...filtered].slice(0, MAX_HISTORY);
+  await chrome.storage.local.set({ history: updated });
 }
 
 export async function clearHistory(): Promise<void> {
-  await chrome.storage.local.set({ history: [] });
+  await chrome.storage.local.remove('history');
 }
 
-// ── Simple key-value ───────────────────────────────────────────────────────
+// ── Generic Key-Value Helpers ──────────────────────────────────────────────
 
 export async function get<T>(key: string, fallback: T | null = null): Promise<T | null> {
   const result = await chrome.storage.local.get(key);
-  return (result[key] as T) ?? fallback;
+  return result[key] !== undefined ? (result[key] as T) : fallback;
 }
 
 export async function set<T>(key: string, value: T): Promise<void> {
   await chrome.storage.local.set({ [key]: value });
 }
+

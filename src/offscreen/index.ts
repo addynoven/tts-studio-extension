@@ -1,11 +1,6 @@
 /**
  * Offscreen Document — Entry Point
- * The engine room. Chrome MV3 service workers cannot run WASM or play audio —
- * the offscreen document gets those privileges.
- *
- * Two modes:
- *  1. MANUAL (legacy): TTS_GENERATE with full text — one-shot playback
- *  2. STREAMING (new): TTS_BUFFER blocks continuously — read-aloud mode
+ * The engine room for WASM inference and Web Audio API playback.
  */
 
 import { MSG } from '../shared/constants.js';
@@ -19,28 +14,46 @@ import {
   getNextPlayIndex,
   createAudioBuffer,
   resumeAudioContext,
-  setTimingCallback
+  setTimingCallback,
+  setPlaybackCompleteCallback,
+  setQueueDrained
 } from './audio/scheduler.js';
+import { loadModel, generateAudio, type TTSResult } from './tts/index.js';
+import { log } from '../shared/logger.js';
+import {
+  setPhase,
+  setModuleStatus,
+  setTimeline,
+  updateTimelineItem,
+  addTimelineItem,
+  setQueueState,
+  recordError,
+  recordTiming,
+  resetPhase
+} from '../shared/state-tracker.js';
+import { getSettings } from '../shared/storage.js';
 
 // ── Web Worker for ONNX inference ──────────────────────────────────────────
 
 const WORKER_URL = chrome.runtime.getURL('tts-worker/tts-worker.js');
-let worker = null;
+let worker: Worker | null = null;
 let nextRequestId = 0;
-const pending = new Map();
+const pending = new Map<number, { resolve: (val: TTSResult | { loaded: true }) => void; reject: (err: Error) => void }>();
 
-function getWorker() {
+function getWorker(): Worker {
   if (!worker) {
     worker = new Worker(WORKER_URL, { type: 'module' });
-    worker.onmessage = (e) => {
+    worker.onmessage = (e: MessageEvent<{ id: number; type: string; error?: string; audio?: Float32Array; sampleRate?: number; playbackRate?: number }>) => {
       const { id, type, error, ...result } = e.data;
       const p = pending.get(id);
       if (!p) return;
       pending.delete(id);
       if (type === 'error') {
         p.reject(new Error(error || 'Worker error'));
+      } else if (type === 'loaded') {
+        p.resolve({ loaded: true });
       } else {
-        p.resolve(result);
+        p.resolve(result as unknown as TTSResult);
       }
     };
     worker.onerror = (e) => {
@@ -50,7 +63,7 @@ function getWorker() {
   return worker;
 }
 
-function postToWorker(type, payload) {
+function postToWorker(type: string, payload: Record<string, unknown>): Promise<TTSResult | { loaded: true }> {
   return new Promise((resolve, reject) => {
     const id = ++nextRequestId;
     pending.set(id, { resolve, reject });
@@ -58,90 +71,68 @@ function postToWorker(type, payload) {
   });
 }
 
-async function loadViaWorker(model, useGPU) {
-  if (model === 'piper') {
-    await loadModel(model, null, useGPU);
-    return;
-  }
+async function loadViaWorker(model: string, useGPU = false): Promise<void> {
   try {
     await postToWorker('load', { model, useGPU });
   } catch (e) {
-    log('offscreen', 'warn', 'Worker load failed, falling back to direct:', e.message);
+    log('offscreen', 'warn', 'Worker load failed, falling back to direct:', (e as Error).message);
     await loadModel(model, null, useGPU);
   }
 }
 
-async function inferViaWorker(model, text, voice, speed) {
-  if (model === 'piper') {
-    return await generateAudio(model, text, voice, speed);
-  }
+async function inferViaWorker(model: string, text: string, voice: string, speed: number): Promise<TTSResult> {
   try {
-    return await postToWorker('infer', { model, text, voice, speed });
+    const res = await postToWorker('infer', { model, text, voice, speed });
+    return res as TTSResult;
   } catch (e) {
-    log('offscreen', 'warn', 'Worker infer failed, falling back to direct:', e.message);
+    log('offscreen', 'warn', 'Worker infer failed, falling back to direct:', (e as Error).message);
     return await generateAudio(model, text, voice, speed);
   }
 }
-
-import { loadModel, generateAudio } from './tts/index.js';
-import { log } from '../shared/logger.js';
-import { setPhase, setModuleStatus, setTimeline, updateTimelineItem, addTimelineItem, setQueueState, recordError, recordTiming, resetPhase } from '../shared/state-tracker.js';
 
 // ── Message helpers ────────────────────────────────────────────────────────
 
-function toPopup(type, extra = {}) {
-  chrome.runtime.sendMessage({ target: 'popup', type, ...extra });
+function toPopup(type: string, extra: Record<string, unknown> = {}): void {
+  chrome.runtime.sendMessage({ target: 'popup', type, ...extra }).catch(() => {});
 }
 
-function toBackground(type, extra = {}) {
+function toBackground(type: string, extra: Record<string, unknown> = {}): void {
   chrome.runtime.sendMessage({ target: 'background', type, ...extra }).catch(() => {});
 }
 
-function toContent(type, extra = {}) {
+function toContent(type: string, extra: Record<string, unknown> = {}): void {
   chrome.runtime.sendMessage({ target: 'content', type, ...extra }).catch(() => {});
 }
 
-// ── Scheduler timing callback ──────────────────────────────────────────────
+// ── State ──────────────────────────────────────────────────────────────────
 
-let chunkTexts = [];
+let chunkTexts: string[] = [];
 let hasAnnouncedPlaying = false;
 
-setTimingCallback(({ index, startTime, duration }) => {
-  const chunkText = chunkTexts[index];
+interface ManualPlaybackState {
+  active: boolean;
+  isPaused: boolean;
+  sentences: string[];
+  paraMap: Map<string, boolean> | null;
+  model: string;
+  voice: string;
+  speed: number;
+  useGPU: boolean;
+  nextIndex: number;
+  totalChunks: number;
+  completedCount: number;
+  errorCount: number;
+  runningCount: number;
+  resolveDone: (() => void) | null;
+}
 
-  // Streaming mode: send block highlight
-  if (stream.active && stream.blockMap.has(index)) {
-    if (!hasAnnouncedPlaying) {
-      hasAnnouncedPlaying = true;
-      toPopup(MSG.STATUS_PLAYING);
-    }
-    toContent(MSG.HIGHLIGHT_BLOCK, { blockIndex: index });
-    return;
-  }
-
-  // Manual mode: send chunk highlight
-  if (!chunkText) return;
-  if (!hasAnnouncedPlaying) {
-    hasAnnouncedPlaying = true;
-    toPopup(MSG.STATUS_PLAYING);
-  }
-  toContent(MSG.HIGHLIGHT_CHUNK, {
-    chunkIndex: index,
-    chunkText,
-    startTime,
-    duration
-  });
-});
-
-// ── Manual mode state ──────────────────────────────────────────────────────
-
-const pb = {
+const pb: ManualPlaybackState = {
   active: false,
   isPaused: false,
   sentences: [],
   paraMap: null,
-  model: null,
-  voice: null,
+  model: 'piper',
+  voice: '3922',
   speed: 1,
   useGPU: false,
   nextIndex: 0,
@@ -149,56 +140,147 @@ const pb = {
   completedCount: 0,
   errorCount: 0,
   runningCount: 0,
-  resolveDone: null,
+  resolveDone: null
 };
 
-// ── Streaming mode state ───────────────────────────────────────────────────
+interface StreamBlock {
+  index: number;
+  text: string;
+  isLastBlock?: boolean;
+}
 
-const stream = {
+interface StreamState {
+  active: boolean;
+  isPaused: boolean;
+  textBuffer: StreamBlock[];
+  audioQueue: Array<{ index: number; buffer: AudioBuffer; playbackRate: number }>;
+  currentBlockIndex: number;
+  blockMap: Map<number, string>;
+  settings: { model: string; voice: string; speed: number; useGPU: boolean };
+  ended: boolean;
+  synthesizing: boolean;
+  schedulerIndex: number;
+}
+
+const stream: StreamState = {
   active: false,
   isPaused: false,
-  textBuffer: [],       // { index, text } blocks waiting for TTS
-  audioQueue: [],       // { index, buffer, playbackRate } ready to play
-  currentBlockIndex: 0, // what's currently playing
-  blockMap: new Map(),  // index → text (for timing callback)
-  settings: { model: null, voice: null, speed: 1, useGPU: false },
-  ended: false,         // received isLastBlock
-  synthesizing: false,  // prevent concurrent synthesis
-  schedulerIndex: 0,    // next slot in scheduler
+  textBuffer: [],
+  audioQueue: [],
+  currentBlockIndex: 0,
+  blockMap: new Map(),
+  settings: { model: 'piper', voice: '3922', speed: 1, useGPU: false },
+  ended: false,
+  synthesizing: false,
+  schedulerIndex: 0
 };
 
-const TEXT_BUFFER_TARGET = 5;  // keep 5 blocks ahead
-const AUDIO_BUFFER_TARGET = 1; // pre-generate 1 block ahead
+// ── Scheduler callbacks ────────────────────────────────────────────────────
+
+setTimingCallback(({ index, semanticId, startTime, duration }) => {
+  if (!hasAnnouncedPlaying) {
+    hasAnnouncedPlaying = true;
+    toPopup(MSG.STATUS_PLAYING);
+  }
+
+  // Streaming mode: highlight block by semantic ID
+  if (stream.active && semanticId !== undefined) {
+    toContent(MSG.HIGHLIGHT_BLOCK, { blockIndex: Number(semanticId) });
+    return;
+  }
+
+  // Manual mode: highlight chunk by text
+  const chunkText = chunkTexts[index];
+  if (chunkText) {
+    toContent(MSG.HIGHLIGHT_CHUNK, {
+      chunkIndex: index,
+      chunkText,
+      startTime,
+      duration
+    });
+  }
+});
+
+setPlaybackCompleteCallback(() => {
+  log('offscreen', 'log', '=== AUDIO PLAYBACK COMPLETE ===');
+  if (stream.active) {
+    finishStream();
+    return;
+  }
+
+  if (pb.active) {
+    pb.active = false;
+    pb.isPaused = false;
+    updateTimelineItem('Playback', { status: 'done' });
+    setPhase('done');
+    setModuleStatus('offscreen', 'idle');
+    toPopup(MSG.STATUS_DONE);
+    toContent(MSG.CLEAR_HIGHLIGHTS);
+  }
+});
 
 // ── Main message handler ───────────────────────────────────────────────────
 
 chrome.runtime.onMessage.addListener((message) => {
   if (message.target !== 'offscreen') return;
 
-  // ── Streaming: receive block from content ──
   if (message.type === MSG.TTS_BUFFER) {
-    handleStreamBuffer(message.block);
+    void handleStreamBuffer(message.block as StreamBlock);
     return;
   }
 
-  // ── Manual mode: one-shot generation ──
   if (message.type === MSG.TTS_GENERATE) {
-    // Stop any active stream first
     if (stream.active) stopStream();
     setModuleStatus('offscreen', 'busy');
-    handleGenerate(message).catch(e => {
-      log('offscreen', 'error', 'handleGenerate failed:', e.message);
-      recordError('offscreen', e.message);
-      setPhase('error', { message: e.message });
-      setModuleStatus('offscreen', 'error');
-      toPopup(MSG.STATUS_ERROR, { error: e.message });
-    }).finally(() => {
-      setModuleStatus('offscreen', 'idle');
-    });
+    handleGenerate(message as { text: string; model: string; voice: string; speed: number; useGPU: boolean })
+      .catch((e: Error) => {
+        log('offscreen', 'error', 'handleGenerate failed:', e.message);
+        recordError('offscreen', e.message);
+        setPhase('error', { message: e.message });
+        setModuleStatus('offscreen', 'error');
+        toPopup(MSG.STATUS_ERROR, { error: e.message });
+      })
+      .finally(() => {
+        if (!pb.active && !stream.active) {
+          setModuleStatus('offscreen', 'idle');
+        }
+      });
     return;
   }
 
-  // ── Pause ──
+  if (message.type === MSG.TTS_TOGGLE_PLAYBACK) {
+    log('offscreen', 'log', 'Toggle playback requested');
+    if (stream.active) {
+      if (stream.isPaused) {
+        stream.isPaused = false;
+        resumeScheduler();
+        void streamSynthesisPump();
+        toPopup(MSG.STATUS_PLAYING);
+      } else {
+        stream.isPaused = true;
+        pauseScheduler();
+        toPopup(MSG.STATUS_PAUSED);
+      }
+      return;
+    }
+    if (pb.active) {
+      if (pb.isPaused) {
+        pb.isPaused = false;
+        resumeScheduler();
+        startSynthesisPump();
+        setPhase('playing', { model: pb.model, totalChunks: pb.totalChunks });
+        toPopup(MSG.STATUS_PLAYING);
+      } else {
+        pb.isPaused = true;
+        pauseScheduler();
+        setPhase('paused', { nextSentence: pb.nextIndex, total: pb.totalChunks });
+        toPopup(MSG.STATUS_PAUSED);
+      }
+      return;
+    }
+    return;
+  }
+
   if (message.type === MSG.TTS_PAUSE) {
     log('offscreen', 'log', 'Pause requested');
     if (stream.active && !stream.isPaused) {
@@ -216,13 +298,12 @@ chrome.runtime.onMessage.addListener((message) => {
     return;
   }
 
-  // ── Resume ──
   if (message.type === MSG.TTS_RESUME) {
     log('offscreen', 'log', 'Resume requested');
     if (stream.active && stream.isPaused) {
       stream.isPaused = false;
       resumeScheduler();
-      streamSynthesisPump();
+      void streamSynthesisPump();
       toPopup(MSG.STATUS_PLAYING);
       return;
     }
@@ -236,11 +317,9 @@ chrome.runtime.onMessage.addListener((message) => {
     return;
   }
 
-  // ── Skip forward (manual mode only for now) ──
   if (message.type === MSG.TTS_SKIP_FORWARD) {
     if (stream.active) {
-      // TODO: streaming skip
-      log('offscreen', 'warn', 'Skip forward not yet implemented in streaming mode');
+      log('offscreen', 'warn', 'Skip forward in streaming mode requested');
       return;
     }
     if (pb.active && pb.sentences.length > 0) {
@@ -252,10 +331,9 @@ chrome.runtime.onMessage.addListener((message) => {
     return;
   }
 
-  // ── Skip backward (manual mode only for now) ──
   if (message.type === MSG.TTS_SKIP_BACKWARD) {
     if (stream.active) {
-      log('offscreen', 'warn', 'Skip backward not yet implemented in streaming mode');
+      log('offscreen', 'warn', 'Skip backward in streaming mode requested');
       return;
     }
     if (pb.active && pb.sentences.length > 0) {
@@ -267,7 +345,6 @@ chrome.runtime.onMessage.addListener((message) => {
     return;
   }
 
-  // ── Stop ──
   if (message.type === MSG.TTS_STOP) {
     log('offscreen', 'log', 'Stop requested');
     if (stream.active) {
@@ -288,12 +365,11 @@ chrome.runtime.onMessage.addListener((message) => {
 
 // ── Streaming handlers ─────────────────────────────────────────────────────
 
-async function handleStreamBuffer(block) {
+async function handleStreamBuffer(block: StreamBlock): Promise<void> {
   if (!block || !block.text) return;
 
-  // First block: initialize stream (must complete before synthesis)
   if (!stream.active) {
-    await initStream(block);
+    await initStream();
   }
 
   log('offscreen', 'log', `Stream buffer received block ${block.index}, len=${block.text.length}`);
@@ -305,13 +381,12 @@ async function handleStreamBuffer(block) {
     log('offscreen', 'log', 'Stream end marker received');
   }
 
-  // Start synthesis if not already running
   if (!stream.synthesizing) {
-    streamSynthesisPump();
+    void streamSynthesisPump();
   }
 }
 
-async function initStream(firstBlock) {
+async function initStream(): Promise<void> {
   log('offscreen', 'log', '=== STREAM START ===');
   stream.active = true;
   stream.isPaused = false;
@@ -330,8 +405,6 @@ async function initStream(firstBlock) {
   setModuleStatus('offscreen', 'busy');
   toPopup(MSG.STATUS_GENERATING);
 
-  // Load default settings
-  const { getSettings } = await import('../shared/storage.js');
   const settings = await getSettings();
   stream.settings = {
     model: settings.defaultModel,
@@ -344,22 +417,20 @@ async function initStream(firstBlock) {
     await loadViaWorker(stream.settings.model, stream.settings.useGPU);
     await resumeAudioContext();
   } catch (e) {
-    log('offscreen', 'error', 'Stream init failed:', e.message);
-    recordError('offscreen', e.message);
+    log('offscreen', 'error', 'Stream init failed:', (e as Error).message);
+    recordError('offscreen', (e as Error).message);
     stopStream();
   }
 }
 
-async function streamSynthesisPump() {
+async function streamSynthesisPump(): Promise<void> {
   if (!stream.active || stream.isPaused || stream.synthesizing) return;
 
-  // If no text to synthesize, check if we need more from content
   if (stream.textBuffer.length === 0) {
     if (!stream.ended) {
       requestNextBlock();
-    } else if (stream.audioQueue.length === 0) {
-      // All done
-      finishStream();
+    } else {
+      setQueueDrained(true);
     }
     return;
   }
@@ -367,8 +438,9 @@ async function streamSynthesisPump() {
   stream.synthesizing = true;
 
   try {
-    const { index, text } = stream.textBuffer.shift();
-    const { model, voice, speed, useGPU } = stream.settings;
+    const item = stream.textBuffer.shift()!;
+    const { index, text } = item;
+    const { model, voice, speed } = stream.settings;
 
     log('offscreen', 'log', `Synthesizing block ${index}, ${text.length} chars`);
     const start = performance.now();
@@ -379,55 +451,53 @@ async function streamSynthesisPump() {
     const buffer = createAudioBuffer(new Float32Array(audio), sampleRate);
     const schedIdx = stream.schedulerIndex++;
 
-    enqueueChunk(schedIdx, buffer, playbackRate);
+    // Enqueue chunk with semanticId set to original block.index
+    enqueueChunk(schedIdx, buffer, playbackRate, index);
     chunkTexts[schedIdx] = text;
 
     // Add pause between blocks
-    if (!stream.ended || stream.textBuffer.length > 0 || stream.audioQueue.length > 0) {
+    if (!stream.ended || stream.textBuffer.length > 0) {
       enqueuePause(stream.schedulerIndex++, 0.5 / speed);
     }
 
     log('offscreen', 'log', `Block ${index} enqueued at scheduler ${schedIdx}`);
 
   } catch (e) {
-    log('offscreen', 'error', 'Stream synthesis failed:', e.message);
-    recordError('offscreen', `Stream: ${e.message}`);
+    log('offscreen', 'error', 'Stream synthesis failed:', (e as Error).message);
+    recordError('offscreen', `Stream: ${(e as Error).message}`);
   } finally {
     stream.synthesizing = false;
   }
 
-  // Keep pumping if there's more work
   if (stream.textBuffer.length > 0) {
-    streamSynthesisPump();
+    void streamSynthesisPump();
   } else if (!stream.ended) {
     requestNextBlock();
-  } else if (stream.schedulerIndex > getNextPlayIndex()) {
-    // Audio is queued, scheduler will play it. We're done generating.
-    log('offscreen', 'log', 'All stream audio generated, playing out');
   } else {
-    finishStream();
+    setQueueDrained(true);
   }
 }
 
-function requestNextBlock() {
+function requestNextBlock(): void {
   if (stream.ended) return;
   const nextIndex = stream.textBuffer.length > 0
     ? stream.textBuffer[stream.textBuffer.length - 1].index + 1
-    : 0;
+    : stream.blockMap.size;
   log('offscreen', 'log', 'Requesting next block:', nextIndex);
   toBackground(MSG.STATUS_NEED_BLOCK, { nextBlockIndex: nextIndex });
 }
 
-function finishStream() {
+function finishStream(): void {
   log('offscreen', 'log', '=== STREAM END ===');
   setPhase('done');
   toPopup(MSG.STATUS_DONE);
   toPopup(MSG.STREAM_END);
   setModuleStatus('offscreen', 'idle');
+  toContent(MSG.CLEAR_HIGHLIGHTS);
   stream.active = false;
 }
 
-function stopStream() {
+function stopStream(): void {
   log('offscreen', 'log', 'Stream stopped');
   stream.active = false;
   stream.isPaused = false;
@@ -444,7 +514,13 @@ function stopStream() {
 
 // ── Manual mode: one-shot generation ───────────────────────────────────────
 
-async function handleGenerate({ text, model, voice, speed, useGPU }) {
+async function handleGenerate({ text, model, voice, speed, useGPU }: {
+  text: string;
+  model: string;
+  voice: string;
+  speed: number;
+  useGPU: boolean;
+}): Promise<void> {
   log('offscreen', 'log', '=== GENERATE START ===');
   log('offscreen', 'log', 'Model:', model, '| Voice:', voice, '| Speed:', speed, '| GPU:', useGPU);
   log('offscreen', 'log', 'Text length:', text.length, 'chars');
@@ -465,15 +541,16 @@ async function handleGenerate({ text, model, voice, speed, useGPU }) {
   resetScheduler();
   toPopup(MSG.STATUS_GENERATING);
 
-  const onProgress = (pct) => toPopup(MSG.STATUS_PROGRESS, { percent: pct });
-
   try {
     setPhase('loading', { model, useGPU });
     addTimelineItem({ label: `Load model: ${model}${useGPU ? ' (GPU)' : ''}`, status: 'running' });
     const loadStart = performance.now();
     await loadViaWorker(model, useGPU);
     recordTiming('modelLoad', performance.now() - loadStart);
-    updateTimelineItem(`Load model: ${model}${useGPU ? ' (GPU)' : ''}`, { status: 'done', durationMs: Math.round(performance.now() - loadStart) });
+    updateTimelineItem(`Load model: ${model}${useGPU ? ' (GPU)' : ''}`, {
+      status: 'done',
+      durationMs: Math.round(performance.now() - loadStart)
+    });
 
     await resumeAudioContext();
 
@@ -487,6 +564,7 @@ async function handleGenerate({ text, model, voice, speed, useGPU }) {
       recordError('offscreen', 'No text to synthesize');
       setPhase('error', { message: 'No text to synthesize' });
       toPopup(MSG.STATUS_ERROR, { error: 'No text to synthesize' });
+      pb.active = false;
       return;
     }
 
@@ -496,11 +574,10 @@ async function handleGenerate({ text, model, voice, speed, useGPU }) {
       const { audio, sampleRate, playbackRate } = await inferViaWorker(model, text, voice, speed);
       const buffer = createAudioBuffer(new Float32Array(audio), sampleRate);
       chunkTexts[0] = text;
-      enqueueChunk(0, buffer, playbackRate);
+      enqueueChunk(0, buffer, playbackRate, 0);
+      setQueueDrained(true);
       updateTimelineItem('Synthesize text', { status: 'done' });
-      setPhase('done');
-      toPopup(MSG.STATUS_DONE);
-      log('offscreen', 'log', '=== GENERATE DONE (single) ===');
+      log('offscreen', 'log', '=== SYNTHESIS COMPLETE (single) — audio playing ===');
       return;
     }
 
@@ -513,9 +590,9 @@ async function handleGenerate({ text, model, voice, speed, useGPU }) {
 
     const timeline = chunks.map((_, i) => ({
       label: `Synthesize chunk ${i + 1}/${totalChunks}`,
-      status: 'pending'
+      status: 'pending' as const
     }));
-    timeline.push({ label: 'Playback', status: 'pending' });
+    timeline.push({ label: 'Playback', status: 'pending' as const });
     await setTimeline(timeline);
     await setQueueState({ totalChunks, completedChunks: 0, scheduledIndex: 0, queueSize: 0 });
 
@@ -533,41 +610,25 @@ async function handleGenerate({ text, model, voice, speed, useGPU }) {
 
     startSynthesisPump();
 
-    await new Promise((resolve) => {
-      pb.resolveDone = resolve;
-    });
-
-    if (pb.active) {
-      updateTimelineItem('Playback', { status: 'running' });
-      setPhase('done');
-      toPopup(MSG.STATUS_DONE);
-      log('offscreen', 'log', '=== GENERATE DONE ===');
-    }
-
   } catch (e) {
-    log('offscreen', 'error', 'Top-level generate failed:', e.message);
-    recordError('offscreen', e.message);
-    setPhase('error', { message: e.message });
-    toPopup(MSG.STATUS_ERROR, { error: e.message });
-    throw e;
-  } finally {
+    log('offscreen', 'error', 'Top-level generate failed:', (e as Error).message);
+    recordError('offscreen', (e as Error).message);
+    setPhase('error', { message: (e as Error).message });
+    toPopup(MSG.STATUS_ERROR, { error: (e as Error).message });
     pb.active = false;
-    pb.isPaused = false;
-    if (pb.resolveDone) {
-      pb.resolveDone();
-      pb.resolveDone = null;
-    }
+    throw e;
   }
 }
 
-function checkDone() {
-  if (pb.resolveDone && pb.completedCount + pb.errorCount >= pb.totalChunks) {
-    pb.resolveDone();
-    pb.resolveDone = null;
+function checkSynthesisDone(): void {
+  if (pb.completedCount + pb.errorCount >= pb.totalChunks) {
+    log('offscreen', 'log', 'All chunks synthesized — playback playing out');
+    setQueueDrained(true);
+    updateTimelineItem('Playback', { status: 'running' });
   }
 }
 
-function startSynthesisPump() {
+function startSynthesisPump(): void {
   while (pb.runningCount < 1 && pb.nextIndex < pb.totalChunks && !pb.isPaused && pb.active) {
     const index = pb.nextIndex++;
     pb.runningCount++;
@@ -576,30 +637,32 @@ function startSynthesisPump() {
     setPhase('generating', { model: pb.model, currentChunk: index, totalChunks: pb.totalChunks });
     log('offscreen', 'log', `Chunk[${index}] synthesizing...`);
 
-    synthesizeChunk(index, label).then(() => {
-      pb.runningCount--;
-      pb.completedCount++;
-      setQueueState({ completedChunks: pb.completedCount });
-      log('offscreen', 'log', `Progress: ${pb.completedCount}/${pb.totalChunks} chunks done`);
-      checkDone();
-      if (pb.active && !pb.isPaused) {
-        startSynthesisPump();
-      }
-    }).catch((e) => {
-      pb.runningCount--;
-      pb.errorCount++;
-      log('offscreen', 'error', `Chunk[${index}] failed:`, e.message);
-      recordError('offscreen', `Chunk[${index}]: ${e.message}`);
-      updateTimelineItem(label, { status: 'error' });
-      checkDone();
-      if (pb.active && !pb.isPaused) {
-        startSynthesisPump();
-      }
-    });
+    synthesizeChunk(index, label)
+      .then(() => {
+        pb.runningCount--;
+        pb.completedCount++;
+        setQueueState({ completedChunks: pb.completedCount });
+        log('offscreen', 'log', `Progress: ${pb.completedCount}/${pb.totalChunks} chunks done`);
+        checkSynthesisDone();
+        if (pb.active && !pb.isPaused) {
+          startSynthesisPump();
+        }
+      })
+      .catch((e: Error) => {
+        pb.runningCount--;
+        pb.errorCount++;
+        log('offscreen', 'error', `Chunk[${index}] failed:`, e.message);
+        recordError('offscreen', `Chunk[${index}]: ${e.message}`);
+        updateTimelineItem(label, { status: 'error' });
+        checkSynthesisDone();
+        if (pb.active && !pb.isPaused) {
+          startSynthesisPump();
+        }
+      });
   }
 }
 
-async function synthesizeChunk(index, label) {
+async function synthesizeChunk(index: number, label: string): Promise<void> {
   const chunkText = pb.sentences[index];
   const startTime = performance.now();
   const { audio, sampleRate, playbackRate } = await inferViaWorker(pb.model, chunkText, pb.voice, pb.speed);
@@ -609,18 +672,18 @@ async function synthesizeChunk(index, label) {
   updateTimelineItem(label, { status: 'done', durationMs: elapsed });
 
   const buffer = createAudioBuffer(new Float32Array(audio), sampleRate);
-  enqueueChunk(index * 2, buffer, playbackRate);
+  enqueueChunk(index * 2, buffer, playbackRate, index);
   log('offscreen', 'log', `Chunk[${index}] enqueued at position ${index * 2}`);
 
   if (index < pb.totalChunks - 1) {
-    const isParaBreak = pb.paraMap.get(pb.sentences[index]) ?? false;
+    const isParaBreak = pb.paraMap?.get(pb.sentences[index]) ?? false;
     const pauseDur = isParaBreak ? 0.8 / pb.speed : getPauseDuration(pb.sentences[index], false, pb.speed);
     enqueuePause(index * 2 + 1, pauseDur);
     log('offscreen', 'log', `Pause[${index}] enqueued: ${(pauseDur * 1000).toFixed(0)}ms (para=${isParaBreak})`);
   }
 }
 
-function getPauseDuration(chunkText, isLastChunk, speed = 1.0) {
+function getPauseDuration(chunkText: string, isLastChunk: boolean, speed = 1.0): number {
   if (isLastChunk) return 0;
   const trimmed = chunkText.trimEnd();
   let pause = 0.3;
@@ -631,9 +694,9 @@ function getPauseDuration(chunkText, isLastChunk, speed = 1.0) {
   return pause / speed;
 }
 
-function buildParagraphMap(originalText, chunks) {
+function buildParagraphMap(originalText: string, chunks: string[]): Map<string, boolean> {
   let offset = 0;
-  const map = new Map();
+  const map = new Map<string, boolean>();
   for (const chunk of chunks) {
     const idx = originalText.indexOf(chunk, offset);
     if (idx !== -1) {
@@ -648,5 +711,5 @@ function buildParagraphMap(originalText, chunks) {
 }
 
 log('offscreen', 'log', 'Offscreen document initialized');
-chrome.runtime.sendMessage({ target: 'background', type: MSG.OFFSCREEN_READY });
+chrome.runtime.sendMessage({ target: 'background', type: MSG.OFFSCREEN_READY }).catch(() => {});
 console.log('[TTS Studio DEBUG] Offscreen READY message sent');

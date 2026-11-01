@@ -1,54 +1,48 @@
 /**
  * Content Script — Entry Point
- * Runs on every page.
- *
- * Two modes:
- *  1. BATCH (legacy): EXTRACT_ARTICLE → extractMappedArticle → ARTICLE_EXTRACTED
- *  2. STREAMING (new): STREAM_START → BlockIterator → BLOCK_READY per block
+ * Runs on web pages to extract text and apply synchronized highlighting.
  */
-
-/* eslint-disable no-console */
-console.log('[TTS Studio DEBUG] === CONTENT SCRIPT EXECUTING ===', location.hostname, 'at', Date.now());
-
-window.addEventListener('error', (e) => {
-  console.error('[TTS Studio DEBUG] GLOBAL ERROR in content script:', e.message, e.filename, e.lineno);
-});
-window.addEventListener('unhandledrejection', (e) => {
-  console.error('[TTS Studio DEBUG] UNHANDLED REJECTION in content script:', e.reason);
-});
 
 import { MSG } from '../shared/constants.js';
 import { extractSelection } from './extractor/index.js';
-import { extractMappedArticle, BlockIterator } from './extractor/dom-mapper.js';
-import { highlightSentence, highlightElement, clearHighlight, clearAll } from './highlighter.js';
+import { extractMappedArticle, BlockIterator, type ExtractedBlock } from './extractor/dom-mapper.js';
+import { highlightSentence, highlightElement, clearAll, setMappedBlocks } from './highlighter.js';
 import { log } from '../shared/logger.js';
 
-// ── Re-init-safe content script ────────────────────────────────────────────
-// When the extension reloads, the old content script becomes orphaned.
-// Programmatic re-injection must re-register listeners, so we store the
-// handler on window and remove the old one before adding the new one.
-
 log('content', 'log', 'Content script loaded on', location.hostname);
-console.log('[TTS Studio DEBUG] Imports finished, setting up listener…');
 
-// ── Streaming state ─────────────────────────────────────────────────────────
-
-let streamIterator = null;
+let streamIterator: BlockIterator | null = null;
 let streamActive = false;
 
-// ── Message handler ─────────────────────────────────────────────────────────
+interface ContentMessage {
+  type: string;
+  blockIndex?: number;
+  chunkText?: string;
+  [key: string]: unknown;
+}
 
-function ttsMessageHandler(message, _sender, sendResponse) {
+declare global {
+  interface Window {
+    __ttsStudioListener?: (
+      message: ContentMessage,
+      sender: chrome.runtime.MessageSender,
+      sendResponse: (res?: unknown) => void
+    ) => boolean | undefined;
+  }
+}
+
+function ttsMessageHandler(
+  message: ContentMessage,
+  _sender: chrome.runtime.MessageSender,
+  sendResponse: (res?: unknown) => void
+): boolean | undefined {
   switch (message.type) {
-    // ── Ping ──
     case '__TTS_PING__':
     case '__TTS_PING':
     case '__PING__':
-      console.log('[TTS Studio DEBUG] PING received, responding ok');
       sendResponse({ ok: true });
       return false;
 
-    // ── Legacy batch extraction ──
     case MSG.EXTRACT_ARTICLE:
       handleExtractArticle(sendResponse);
       return true;
@@ -57,9 +51,8 @@ function ttsMessageHandler(message, _sender, sendResponse) {
       handleGetSelection(sendResponse);
       return true;
 
-    // ── Streaming protocol ──
     case MSG.STREAM_START:
-      handleStreamStart(message);
+      handleStreamStart();
       sendResponse({ ok: true });
       return false;
 
@@ -67,14 +60,17 @@ function ttsMessageHandler(message, _sender, sendResponse) {
       handleRequestBlock(message, sendResponse);
       return true;
 
-    // ── Highlighting ──
     case MSG.HIGHLIGHT_CHUNK:
-      handleHighlightChunk(message);
+      if (message.chunkText) {
+        highlightSentence(message.chunkText);
+      }
       sendResponse({ ok: true });
       return false;
 
     case MSG.HIGHLIGHT_BLOCK:
-      handleHighlightBlock(message);
+      if (message.blockIndex !== undefined) {
+        handleHighlightBlock(message.blockIndex);
+      }
       sendResponse({ ok: true });
       return false;
 
@@ -90,33 +86,28 @@ function ttsMessageHandler(message, _sender, sendResponse) {
   }
 }
 
-// Remove orphaned listener (from previous extension load) and register fresh one
-console.log('[TTS Studio DEBUG] Checking for old listener…', !!window.__ttsStudioListener);
 if (window.__ttsStudioListener) {
   try {
     chrome.runtime.onMessage.removeListener(window.__ttsStudioListener);
-    console.log('[TTS Studio DEBUG] Old listener removed.');
-  } catch (_e) {
-    console.log('[TTS Studio DEBUG] Old listener removal failed (expected if orphaned):', _e);
-  }
+  } catch {}
 }
 window.__ttsStudioListener = ttsMessageHandler;
 chrome.runtime.onMessage.addListener(ttsMessageHandler);
-console.log('[TTS Studio DEBUG] Listener registered on chrome.runtime.onMessage');
 
-// ── Legacy handlers ─────────────────────────────────────────────────────────
-
-function handleGetSelection(sendResponse) {
+function handleGetSelection(sendResponse: (res: unknown) => void): void {
   const result = extractSelection();
   log('content', 'log', 'Selection extracted:', result ? result.length + ' chars' : 'none');
   sendResponse(result || { text: '', sentences: [], length: 0 });
 }
 
-function handleExtractArticle(sendResponse) {
+function handleExtractArticle(sendResponse: (res: unknown) => void): void {
   log('content', 'log', 'EXTRACT_ARTICLE received (batch mode)');
 
   const { blocks, title, fullText } = extractMappedArticle();
   log('content', 'log', 'Extracted:', title, '|', blocks.length, 'blocks |', fullText.length, 'chars');
+
+  // Store mapped blocks for highlighting synchronization
+  setMappedBlocks(blocks);
 
   if (!blocks.length || !fullText.trim()) {
     log('content', 'warn', 'No article content found');
@@ -136,16 +127,14 @@ function handleExtractArticle(sendResponse) {
       length: fullText.length,
       url: location.href
     }
-  }).catch((e) => {
+  }).catch((e: Error) => {
     log('content', 'error', 'Failed to send ARTICLE_EXTRACTED:', e.message);
   });
 
   sendResponse({ title, text: fullText, length: fullText.length });
 }
 
-// ── Streaming handlers ──────────────────────────────────────────────────────
-
-function handleStreamStart(message) {
+function handleStreamStart(): void {
   log('content', 'log', 'STREAM_START received');
 
   clearAll();
@@ -154,7 +143,6 @@ function handleStreamStart(message) {
 
   log('content', 'log', 'BlockIterator initialized,', streamIterator.totalBlocks, 'raw blocks');
 
-  // Immediately send block 0 to start playback quickly
   const block = streamIterator.next();
   if (block) {
     sendBlockReady(block, false);
@@ -164,7 +152,7 @@ function handleStreamStart(message) {
   }
 }
 
-function handleRequestBlock(message, sendResponse) {
+function handleRequestBlock(message: ContentMessage, sendResponse: (res: unknown) => void): void {
   const index = message.blockIndex ?? -1;
   log('content', 'log', 'REQUEST_BLOCK:', index);
 
@@ -174,7 +162,6 @@ function handleRequestBlock(message, sendResponse) {
     return;
   }
 
-  // If index is specified and different from cursor, seek
   if (index >= 0 && index !== streamIterator.cursor) {
     streamIterator.seek(index);
   }
@@ -186,13 +173,12 @@ function handleRequestBlock(message, sendResponse) {
     sendBlockReady(block, isLast);
     sendResponse({ ok: true, index: block.index, isLast });
   } else {
-    // No more blocks
     streamActive = false;
     sendResponse({ ok: true, index: -1, isLast: true });
   }
 }
 
-function sendBlockReady(block, isLast) {
+function sendBlockReady(block: ExtractedBlock, isLast: boolean): void {
   chrome.runtime.sendMessage({
     target: 'background',
     type: MSG.BLOCK_READY,
@@ -201,19 +187,12 @@ function sendBlockReady(block, isLast) {
       text: block.ttsText,
       isLastBlock: isLast
     }
-  }).catch((e) => {
+  }).catch((e: Error) => {
     log('content', 'error', 'Failed to send BLOCK_READY:', e.message);
   });
 }
 
-// ── Highlight handlers ──────────────────────────────────────────────────────
-
-function handleHighlightChunk({ chunkText }) {
-  if (!chunkText) return;
-  highlightSentence(chunkText);
-}
-
-function handleHighlightBlock({ blockIndex }) {
+function handleHighlightBlock(blockIndex: number): void {
   if (!streamIterator || blockIndex < 0) return;
   const block = streamIterator.getBlock(blockIndex);
   if (block?.el) {

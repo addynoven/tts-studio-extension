@@ -4,10 +4,9 @@
  *
  * Current shortcuts:
  *   Alt+Shift+R  → Read current article
- *   Alt+Shift+S  → Play/Pause
+ *   Alt+Shift+S  → Play/Pause (Toggle)
  *   Alt+Shift+N  → Next sentence
  *   Alt+Shift+P  → Previous sentence
- *   Alt+Shift+V  → Open popup
  */
 
 import { MSG } from '../shared/constants.js';
@@ -27,24 +26,26 @@ export function initCommands(): void {
         if (tabId) {
           await ensureContentScript(tabId);
           chrome.tabs.sendMessage(tabId, { type: MSG.STREAM_START }).catch(() => {});
+          showToast(tabId, '🔊 Reading article...');
         }
-        showToast(tabId, '🔊 Reading article...');
         break;
 
       case 'toggle-playback':
         if (tabId) {
           chrome.tabs.sendMessage(tabId, { type: MSG.TTS_STOP }).catch(() => {});
         }
+        await ensureOffscreen();
+        chrome.runtime.sendMessage({ target: 'offscreen', type: MSG.TTS_TOGGLE_PLAYBACK }).catch(() => {});
         break;
 
       case 'skip-forward':
         await ensureOffscreen();
-        chrome.runtime.sendMessage({ target: 'offscreen', type: MSG.TTS_SKIP_FORWARD });
+        chrome.runtime.sendMessage({ target: 'offscreen', type: MSG.TTS_SKIP_FORWARD }).catch(() => {});
         break;
 
       case 'skip-backward':
         await ensureOffscreen();
-        chrome.runtime.sendMessage({ target: 'offscreen', type: MSG.TTS_SKIP_BACKWARD });
+        chrome.runtime.sendMessage({ target: 'offscreen', type: MSG.TTS_SKIP_BACKWARD }).catch(() => {});
         break;
     }
   });
@@ -85,5 +86,5 @@ function showToast(tabId: number | undefined, message: string): void {
       setTimeout(() => toast.remove(), 3000);
     },
     args: [message]
-  });
+  }).catch(() => {});
 }

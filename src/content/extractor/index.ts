@@ -6,17 +6,36 @@
 
 import { Readability, isProbablyReaderable } from '@mozilla/readability';
 import { splitIntoSentences } from '../../shared/sentence-splitter.js';
-import { sanitizeForTTS } from '../sanitizer/smart-cleaner.js';
+import { sanitizeForTTS, type SanitizerOptions } from '../sanitizer/smart-cleaner.js';
+
+export interface ExtractorOptions {
+  sanitize?: boolean;
+  sanitizerOpts?: SanitizerOptions;
+}
+
+export interface ExtractedArticle {
+  title: string;
+  text: string;
+  sentences: string[];
+  html: string;
+  excerpt: string;
+  length: number;
+  url: string;
+  isReadable: boolean;
+}
+
+export interface ExtractedSelection {
+  text: string;
+  sentences: string[];
+  length: number;
+}
 
 /**
  * Extract article content from the current page.
- * @param {object} options - { sanitize: true, sanitizerOpts: {} }
- * @returns {object|null} { title, text, sentences[], html, excerpt, length, url }
  */
-export function extractArticle(options = {}) {
+export function extractArticle(options: ExtractorOptions = {}): ExtractedArticle {
   const { sanitize = true, sanitizerOpts = {} } = options;
 
-  // Check if page looks like an article
   const isReadable = isProbablyReaderable(document);
 
   let title = document.title || '';
@@ -25,8 +44,7 @@ export function extractArticle(options = {}) {
   let excerpt = '';
 
   if (isReadable) {
-    // Use Mozilla Readability (same as Firefox Reader View)
-    const documentClone = document.cloneNode(true);
+    const documentClone = document.cloneNode(true) as Document;
     const reader = new Readability(documentClone);
     const article = reader.parse();
 
@@ -38,12 +56,10 @@ export function extractArticle(options = {}) {
     }
   }
 
-  // Fallback: if Readability fails or page isn't an article
   if (!text) {
     text = document.body.innerText || '';
   }
 
-  // Sanitize before splitting
   if (sanitize) {
     text = sanitizeForTTS(text, sanitizerOpts);
   }
@@ -64,10 +80,8 @@ export function extractArticle(options = {}) {
 
 /**
  * Extract currently selected text.
- * @param {object} options - { sanitize: true, sanitizerOpts: {} }
- * @returns {object|null} { text, sentences[], length }
  */
-export function extractSelection(options = {}) {
+export function extractSelection(options: ExtractorOptions = {}): ExtractedSelection | null {
   const { sanitize = true, sanitizerOpts = {} } = options;
 
   const selection = window.getSelection()?.toString()?.trim();
@@ -87,17 +101,11 @@ export function extractSelection(options = {}) {
 
 /**
  * Extract text from a specific DOM element and its descendants.
- * Useful for "Read from here" feature.
- * @param {Element} element
- * @param {object} options
- * @returns {object}
  */
-export function extractFromElement(element, options = {}) {
+export function extractFromElement(element: Element, options: ExtractorOptions = {}): ExtractedSelection {
   const { sanitize = true, sanitizerOpts = {} } = options;
 
-  // Skip text inside script/style/noscript/iframe elements
   const SKIP_TAGS = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'IFRAME', 'SVG', 'CANVAS']);
-
   const walker = document.createTreeWalker(
     document.body,
     NodeFilter.SHOW_TEXT,
@@ -109,22 +117,21 @@ export function extractFromElement(element, options = {}) {
         }
         return NodeFilter.FILTER_ACCEPT;
       }
-    },
-    false
+    }
   );
 
-  const texts = [];
+  const texts: string[] = [];
   let found = false;
-  let node;
+  let node: Node | null;
 
-  while (node = walker.nextNode()) {
+  while ((node = walker.nextNode())) {
     if (!found) {
       if (node.parentElement === element || element.contains(node)) {
         found = true;
       }
     }
     if (found) {
-      texts.push(node.textContent);
+      texts.push(node.textContent || '');
     }
   }
 

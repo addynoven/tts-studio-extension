@@ -22,7 +22,7 @@ export async function initMathSpeech(): Promise<void> {
   try {
     // Tell SRE where to load locale JSON files from.
     // MUST be set BEFORE the dynamic import so the auto-setup picks it up.
-    (globalThis as any).SREfeature = {
+    (globalThis as unknown as { SREfeature?: unknown }).SREfeature = {
       json:
         typeof chrome !== 'undefined' && chrome.runtime?.getURL
           ? chrome.runtime.getURL('mathmaps/')
@@ -221,7 +221,7 @@ export function latexToSpoken(latex: string): string {
   s = s.replace(/\s+/g, ' ').trim();
 
   // If after all cleanup it's empty or just brackets, return empty
-  if (!s || /^[\[\]\(\)\{\}\|]*$/.test(s)) return '';
+  if (!s || /^[\][(){}|]*$/.test(s)) return '';
 
   return s;
 }

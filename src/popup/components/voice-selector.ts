@@ -3,7 +3,7 @@
  * Handles voice lists, dynamic Piper loading, and selection persistence.
  */
 
-import { VOICES } from '../../shared/constants.js';
+import { VOICES, MODEL_PATHS } from '../../shared/constants.js';
 
 const voiceSelect = document.getElementById('voiceSelect') as HTMLSelectElement;
 
@@ -15,8 +15,10 @@ let piperVoicesLoaded = false;
 async function loadPiperVoices(): Promise<void> {
   if (piperVoicesLoaded) return;
   try {
-    const configUrl = chrome.runtime.getURL('models/piper/en_US-libritts_r-medium.onnx.json');
+    const configPath = MODEL_PATHS.piper.config || 'assets/models/piper/en_US-libritts_r-medium.onnx.json';
+    const configUrl = chrome.runtime.getURL(configPath);
     const res = await fetch(configUrl);
+    if (!res.ok) throw new Error(`HTTP ${res.status} fetching Piper config from ${configUrl}`);
     const config = await res.json() as { speaker_id_map?: Record<string, number> };
     const speakers = config.speaker_id_map || {};
 

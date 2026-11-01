@@ -43,8 +43,9 @@ async function injectContentScript(tabId: number): Promise<void> {
       injectImmediately: true
     });
     console.log(`[TTS Studio DEBUG] INJECTION into tab ${tabId} reported SUCCESS by Chrome`);
-  } catch (e: any) {
-    console.error(`[TTS Studio DEBUG] INJECTION into tab ${tabId} THREW:`, e.message);
+  } catch (e) {
+    const err = e as Error;
+    console.error(`[TTS Studio DEBUG] INJECTION into tab ${tabId} THREW:`, err.message);
     throw e;
   }
 }

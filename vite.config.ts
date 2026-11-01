@@ -144,11 +144,11 @@ export default defineConfig({
     rollupOptions: {
       input: {
         background: resolve(__dirname, 'src/background/index.ts'),
-        content: resolve(__dirname, 'src/content/index.js'),
+        content: resolve(__dirname, 'src/content/index.ts'),
         offscreen: resolve(__dirname, 'src/offscreen/index.html'),
         popup: resolve(__dirname, 'src/popup/index.html'),
         options: resolve(__dirname, 'src/options/index.html'),
-        'tts-worker': resolve(__dirname, 'src/offscreen/tts/tts-worker.js'),
+        'tts-worker': resolve(__dirname, 'src/offscreen/tts/tts-worker.ts'),
       },
       output: {
         entryFileNames: (chunk) => {
@@ -196,7 +196,7 @@ export default defineConfig({
  * works reliably regardless of how Chrome injects it.
  */
 async function bundleContentScriptIIFE(): Promise<void> {
-  const entry = resolve(__dirname, 'src/content/index.js');
+  const entry = resolve(__dirname, 'src/content/index.ts');
   const outFile = resolve(__dirname, 'dist/content.js');
 
   try {

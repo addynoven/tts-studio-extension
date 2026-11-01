@@ -1,15 +1,7 @@
 /**
  * Background Service Worker — Entry Point
  * Wires together all background modules.
- *
- * NOTE: This is a CENTRAL MESSAGE ROUTER. It must handle ALL messages
- * regardless of target field, because it forwards messages between
- * popup ↔ offscreen ↔ content scripts.
- *
- * Streaming protocol additions:
- *   popup/command → STREAM_START → content
- *   content → BLOCK_READY → offscreen (as TTS_BUFFER)
- *   offscreen → STATUS_NEED_BLOCK → content (as REQUEST_BLOCK)
+ * Central router forwarding messages between popup ↔ offscreen ↔ content scripts.
  */
 
 import { MSG, defaultVoiceForModel } from '../shared/constants.js';
@@ -38,20 +30,38 @@ closeOffscreen().catch(() => {});
 // ── Offscreen ready tracking ───────────────────────────────────────────────
 
 let offscreenReady = false;
-const ttsBufferQueue: Array<Record<string, unknown>> = [];
+const offscreenMessageQueue: Array<Record<string, unknown>> = [];
 
-function flushTtsBufferQueue(): void {
-  while (ttsBufferQueue.length > 0) {
-    const block = ttsBufferQueue.shift();
+function flushOffscreenQueue(): void {
+  while (offscreenMessageQueue.length > 0) {
+    const msg = offscreenMessageQueue.shift();
+    if (!msg) continue;
     chrome.runtime.sendMessage({
-      target: 'offscreen',
-      type: MSG.TTS_BUFFER,
-      block,
+      ...msg,
       _forwarded: true
     }).catch((e: Error) => {
-      log('bg', 'error', 'Failed to forward BLOCK_READY to offscreen:', e.message);
+      log('bg', 'error', 'Failed to forward queued message to offscreen:', e.message);
     });
   }
+}
+
+function sendToOffscreen(message: Record<string, unknown>): void {
+  ensureOffscreen().then(() => {
+    setModuleStatus('offscreen', 'active');
+    if (offscreenReady) {
+      chrome.runtime.sendMessage({ ...message, _forwarded: true }).catch((e: Error) => {
+        log('bg', 'error', 'Failed to send to offscreen:', e.message);
+        recordError('bg', e.message);
+      });
+    } else {
+      log('bg', 'log', 'Queueing message for offscreen:', message.type);
+      offscreenMessageQueue.push(message);
+    }
+  }).catch((e: Error) => {
+    log('bg', 'error', 'ensureOffscreen failed:', e.message);
+    recordError('bg', e.message);
+    setModuleStatus('offscreen', 'error');
+  });
 }
 
 // ── Helper: forward to active tab's content script ─────────────────────────
@@ -68,7 +78,6 @@ function forwardToContent(message: Record<string, unknown>): void {
 // ── Message router ─────────────────────────────────────────────────────────
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  // Prevent infinite forwarding loops — skip messages we already forwarded
   if (message._forwarded) return false;
 
   setModuleStatus('bg', 'active');
@@ -78,7 +87,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === MSG.OFFSCREEN_READY) {
     log('bg', 'log', 'Offscreen ready');
     offscreenReady = true;
-    flushTtsBufferQueue();
+    flushOffscreenQueue();
     return false;
   }
 
@@ -102,22 +111,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   // ── Streaming: BLOCK_READY from content → forward to offscreen as TTS_BUFFER ──
   if (message.type === MSG.BLOCK_READY) {
     log('bg', 'log', 'Streaming block', message.block?.index, '| last:', message.block?.isLastBlock);
-    ensureOffscreen().then(() => {
-      if (offscreenReady) {
-        chrome.runtime.sendMessage({
-          target: 'offscreen',
-          type: MSG.TTS_BUFFER,
-          block: message.block,
-          _forwarded: true
-        }).catch((e: Error) => {
-          log('bg', 'error', 'Failed to forward BLOCK_READY to offscreen:', e.message);
-        });
-      } else {
-        log('bg', 'log', 'Queueing BLOCK_READY until offscreen is ready');
-        ttsBufferQueue.push(message.block);
-      }
-    }).catch((e: Error) => {
-      log('bg', 'error', 'ensureOffscreen failed for stream:', e.message);
+    sendToOffscreen({
+      target: 'offscreen',
+      type: MSG.TTS_BUFFER,
+      block: message.block
     });
     return false;
   }
@@ -127,8 +124,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     log('bg', 'log', 'Offscreen needs block', message.nextBlockIndex);
     forwardToContent({
       type: MSG.REQUEST_BLOCK,
-      blockIndex: message.nextBlockIndex,
-      _forwarded: true
+      blockIndex: message.nextBlockIndex
     });
     return false;
   }
@@ -136,25 +132,23 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   // ── Streaming: STREAM_START from popup/commands → forward to content ──
   if (message.type === MSG.STREAM_START) {
     log('bg', 'log', 'STREAM_START received, forwarding to content');
-    forwardToContent({ ...message, _forwarded: true });
+    forwardToContent(message);
     return false;
   }
 
-  // ── Popup → offscreen (manual mode: generate / stop / pause / resume) ──
+  // ── Popup/commands → offscreen ──
   if (message.target === 'offscreen') {
     log('bg', 'log', 'Forwarding to offscreen:', message.type);
-    ensureOffscreen().then(() => {
-      setModuleStatus('offscreen', 'active');
-      chrome.runtime.sendMessage({ ...message, _forwarded: true }).catch((e: Error) => {
-        log('bg', 'error', 'Failed to forward to offscreen:', e.message);
-        recordError('bg', e.message);
-        setModuleStatus('offscreen', 'error');
+    ensureOffscreen()
+      .then(() => {
+        setModuleStatus('offscreen', 'active');
+        chrome.runtime.sendMessage({ ...message, _forwarded: true }).catch((e: Error) => {
+          log('bg', 'error', 'Failed to forward to offscreen:', e.message);
+        });
+      })
+      .catch((e: Error) => {
+        log('bg', 'error', 'ensureOffscreen failed:', e.message);
       });
-    }).catch((e: Error) => {
-      log('bg', 'error', 'ensureOffscreen failed for forward:', e.message);
-      recordError('bg', e.message);
-      setModuleStatus('offscreen', 'error');
-    });
     return false;
   }
 
@@ -162,7 +156,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.target === 'popup') {
     log('bg', 'log', 'Forwarding to popup:', message.type);
     chrome.runtime.sendMessage({ ...message, _forwarded: true }).catch(() => {
-      // Popup may be closed — that's fine
+      // Popup may be closed
     });
     return false;
   }
@@ -170,7 +164,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   // ── Offscreen → content script (highlighting) ──
   if (message.target === 'content') {
     log('bg', 'log', 'Forwarding to content:', message.type);
-    forwardToContent({ ...message, _forwarded: true });
+    forwardToContent(message);
     return false;
   }
 
@@ -185,27 +179,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         const voice = settings.defaultVoice || defaultVoiceForModel(model);
         const speed = settings.defaultSpeed;
         const useGPU = settings.executionProvider === 'webgpu';
-        console.log('[TTS Studio] BG forwarding TTS_GENERATE. model:', model, '| voice:', voice, '| textLen:', article.text!.length);
-        ensureOffscreen().then(() => {
-          chrome.runtime.sendMessage({
-            target: 'offscreen',
-            type: MSG.TTS_GENERATE,
-            text: article.text,
-            model,
-            voice,
-            speed: Number(speed),
-            useGPU
-          }).then(() => {
-            console.log('[TTS Studio] BG forwarded TTS_GENERATE to offscreen');
-          }).catch((e: Error) => {
-            log('bg', 'error', 'Failed to forward TTS_GENERATE:', e.message);
-          });
-        }).catch((e: Error) => {
-          log('bg', 'error', 'ensureOffscreen failed for article TTS:', e.message);
+        console.log('[TTS Studio] BG forwarding TTS_GENERATE. model:', model, '| voice:', voice);
+        sendToOffscreen({
+          target: 'offscreen',
+          type: MSG.TTS_GENERATE,
+          text: article.text,
+          model,
+          voice,
+          speed: Number(speed),
+          useGPU
         });
       });
-    } else {
-      console.warn('[TTS Studio] BG received ARTICLE_EXTRACTED but no text');
     }
     return false;
   }

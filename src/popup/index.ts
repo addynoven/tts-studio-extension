@@ -1,17 +1,18 @@
 /**
  * Popup — Entry Point
- * Wires together all popup components.
+ * Wires together all popup components with unified storage and UI state.
  */
 
 import { MSG } from '../shared/constants.js';
 import { initModelTabs, setActiveModel, getActiveModel } from './components/model-tabs.js';
 import { populateVoices, getSelectedVoice, onVoiceChange } from './components/voice-selector.js';
 import { initSpeedControl, getSpeed } from './components/speed-control.js';
-import { setStatus, updateProgress, initCopyButton, type StatusState } from './components/status-bar.js';
+import { setStatus, updateProgress, initCopyButton } from './components/status-bar.js';
 import { createDebugPanel, toggleDebugPanel, addLog } from './components/debug-panel.js';
 import { setModuleStatus, setPhase, recordError } from '../shared/state-tracker.js';
 import { log } from '../shared/logger.js';
 import type { LogEntry } from '../shared/logger.js';
+import { getSettings, updateSettings } from '../shared/storage.js';
 
 // ── DOM refs ───────────────────────────────────────────────────────────────
 
@@ -27,7 +28,6 @@ const gpuToggle = document.getElementById('gpuToggle') as HTMLDivElement;
 const btnExtractArticle = document.getElementById('btnExtractArticle') as HTMLButtonElement;
 const extractionPanel = document.getElementById('extractionPanel') as HTMLDivElement;
 const extractResultText = document.getElementById('extractResultText') as HTMLTextAreaElement;
-const extractBlockCount = document.getElementById('extractBlockCount') as HTMLSpanElement;
 const btnCloseExtract = document.getElementById('btnCloseExtract') as HTMLButtonElement;
 const btnCopyExtract = document.getElementById('btnCopyExtract') as HTMLButtonElement;
 
@@ -43,7 +43,6 @@ const GENERATION_TIMEOUT_MS = 60000; // 60s safety timeout
 
 async function init(): Promise<void> {
   setModuleStatus('popup', 'active');
-  // Create debug panel (hidden by default)
   createDebugPanel(body);
 
   // Debug toggle button
@@ -55,44 +54,48 @@ async function init(): Promise<void> {
     btnDebug.style.opacity = '0.5';
   });
 
-  // Restore saved settings
-  const saved = await chrome.storage.local.get(['model', 'voice', 'speed', 'gpu', 'text']) as Record<string, unknown>;
+  // Restore saved settings from unified storage
+  const settings = await getSettings();
 
   // Model tabs
   initModelTabs(async (model) => {
-    await chrome.storage.local.set({ model });
-    await populateVoices(model, saved.voice as string | undefined);
+    await updateSettings({ defaultModel: model });
+    await populateVoices(model, settings.defaultVoice);
   });
-
-  setActiveModel((saved.model as string) || 'piper');
+  setActiveModel(settings.defaultModel || 'piper');
 
   // Voices
-  await populateVoices(getActiveModel(), saved.voice as string | undefined);
-  onVoiceChange(voice => chrome.storage.local.set({ voice }));
+  await populateVoices(getActiveModel(), settings.defaultVoice);
+  onVoiceChange(async (voice) => {
+    await updateSettings({ defaultVoice: voice });
+  });
 
   // Speed
-  initSpeedControl((saved.speed as number) || 1.0, speed => chrome.storage.local.set({ speed }));
+  initSpeedControl(settings.defaultSpeed || 1.0, async (speed) => {
+    await updateSettings({ defaultSpeed: speed });
+  });
 
   // GPU toggle
-  if (saved.gpu) gpuToggle.classList.toggle('on', saved.gpu as boolean);
-  gpuToggle.addEventListener('click', () => {
+  const isGpu = settings.executionProvider === 'webgpu';
+  gpuToggle.classList.toggle('on', isGpu);
+  gpuToggle.addEventListener('click', async () => {
     gpuToggle.classList.toggle('on');
-    chrome.storage.local.set({ gpu: gpuToggle.classList.contains('on') });
+    const enabled = gpuToggle.classList.contains('on');
+    await updateSettings({ executionProvider: enabled ? 'webgpu' : 'wasm' });
   });
 
   // Text input
-  if (saved.text) textInput.value = saved.text as string;
+  if (settings.lastInputText) textInput.value = settings.lastInputText;
   charCount.textContent = String(textInput.value.length);
   textInput.addEventListener('input', () => {
     charCount.textContent = String(textInput.value.length);
-    chrome.storage.local.set({ text: textInput.value });
+    updateSettings({ lastInputText: textInput.value });
   });
 
   // Buttons
   btnGenerate.addEventListener('click', onGenerateClick);
   btnStop.addEventListener('click', stop);
   btnSelected.addEventListener('click', useSelectedText);
-
   btnExtractArticle.addEventListener('click', extractArticle);
 
   btnCloseExtract.addEventListener('click', () => {
@@ -103,34 +106,34 @@ async function init(): Promise<void> {
     extractResultText.select();
     document.execCommand('copy');
     btnCopyExtract.textContent = 'Copied!';
-    setTimeout(() => btnCopyExtract.textContent = 'Copy', 2000);
+    setTimeout(() => { btnCopyExtract.textContent = 'Copy'; }, 2000);
   });
 
-  // Copy button
   initCopyButton();
 
   // Message listener (offscreen + debug)
   chrome.runtime.onMessage.addListener(handleMessages);
 
   // Load any stored debug logs
-  loadStoredLogs();
+  await loadStoredLogs();
 
   // Ensure offscreen document exists
-  await chrome.runtime.sendMessage({ type: MSG.ENSURE_OFFSCREEN });
+  await chrome.runtime.sendMessage({ type: MSG.ENSURE_OFFSCREEN }).catch(() => {});
 }
 
-// ─- Actions ────────────────────────────────────────────────────────────────
+// ── Actions ────────────────────────────────────────────────────────────────
 
 async function extractArticle(): Promise<void> {
+  setUIState('loading');
   setStatus('loading', 'Starting read-aloud stream...');
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab) throw new Error('No active tab');
+    if (!tab?.id) throw new Error('No active tab');
 
     // Ensure content script is injected
     try {
       await chrome.scripting.executeScript({
-        target: { tabId: tab.id! },
+        target: { tabId: tab.id },
         files: ['content.js']
       });
       await new Promise(r => setTimeout(r, 200));
@@ -139,11 +142,13 @@ async function extractArticle(): Promise<void> {
     }
 
     // Start streaming read-aloud
-    await chrome.tabs.sendMessage(tab.id!, { type: MSG.STREAM_START });
+    await chrome.tabs.sendMessage(tab.id, { type: MSG.STREAM_START });
+    setUIState('playing');
     setStatus('playing', 'Reading article aloud...');
 
   } catch (error) {
     console.error('Stream start failed:', error);
+    setUIState('idle');
     setStatus('error', 'Failed to start reading');
   }
 }
@@ -168,7 +173,6 @@ async function generate(): Promise<void> {
   setStatus('loading', 'Loading model…');
   setPhase('start');
 
-  // Safety timeout — if offscreen hangs/crashes, reset UI
   generationTimeout = setTimeout(() => {
     if (uiState !== 'idle') {
       log('popup', 'warn', 'Generation timed out after ' + GENERATION_TIMEOUT_MS + 'ms');
@@ -186,25 +190,33 @@ async function generate(): Promise<void> {
     voice: getSelectedVoice(),
     speed: getSpeed(),
     useGPU: gpuToggle.classList.contains('on')
+  }).catch((e: Error) => {
+    setUIState('idle');
+    setStatus('error', e.message);
   });
 }
 
 function pause(): void {
   if (uiState !== 'loading' && uiState !== 'playing') return;
-  chrome.runtime.sendMessage({ target: 'offscreen', type: MSG.TTS_PAUSE });
+  chrome.runtime.sendMessage({ target: 'offscreen', type: MSG.TTS_PAUSE }).catch(() => {});
   setUIState('paused');
   setStatus('paused', 'Paused');
 }
 
 function resume(): void {
   if (uiState !== 'paused') return;
-  chrome.runtime.sendMessage({ target: 'offscreen', type: MSG.TTS_RESUME });
+  chrome.runtime.sendMessage({ target: 'offscreen', type: MSG.TTS_RESUME }).catch(() => {});
   setUIState('playing');
   setStatus('playing', 'Playing…');
 }
 
 function stop(): void {
-  chrome.runtime.sendMessage({ target: 'offscreen', type: MSG.TTS_STOP });
+  chrome.runtime.sendMessage({ target: 'offscreen', type: MSG.TTS_STOP }).catch(() => {});
+  chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
+    if (tab?.id) {
+      chrome.tabs.sendMessage(tab.id, { type: MSG.CLEAR_HIGHLIGHTS }).catch(() => {});
+    }
+  });
   setUIState('idle');
   setStatus('idle', 'Stopped');
 }
@@ -220,11 +232,11 @@ async function useSelectedText(): Promise<void> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id) return;
   try {
-    const { text } = await chrome.tabs.sendMessage(tab.id, { type: MSG.GET_SELECTION });
-    if (text) {
-      textInput.value = text;
-      charCount.textContent = String(text.length);
-      chrome.storage.local.set({ text });
+    const res = await chrome.tabs.sendMessage(tab.id, { type: MSG.GET_SELECTION }) as { text?: string } | undefined;
+    if (res?.text) {
+      textInput.value = res.text;
+      charCount.textContent = String(res.text.length);
+      await updateSettings({ lastInputText: res.text });
     } else {
       setStatus('idle', 'No text selected on page');
     }
@@ -268,13 +280,11 @@ function setUIState(state: UIState): void {
 function handleMessages(message: Record<string, unknown>): boolean {
   if (message.target !== 'popup') return false;
 
-  // Debug logs
   if (message.type === 'DEBUG_LOG') {
     addLog(message.entry as LogEntry);
     return false;
   }
 
-  // Status updates from offscreen
   switch (message.type) {
     case MSG.STATUS_MODEL_LOADING:
       setStatus('loading', `Downloading ${message.model} model… first time only`);
@@ -295,16 +305,18 @@ function handleMessages(message: Record<string, unknown>): boolean {
       setUIState('idle');
       setStatus('ready', 'Done ✓');
       setPhase('done');
-      setTimeout(() => setStatus('idle', 'Ready'), 3000);
+      setTimeout(() => {
+        if (uiState === 'idle') setStatus('idle', 'Ready');
+      }, 3000);
       break;
     case MSG.STATUS_ERROR:
       setUIState('idle');
       setStatus('error', `Error: ${message.error}`);
-      recordError('popup', message.error as string);
-      setPhase('error', { message: message.error });
+      recordError('popup', String(message.error || 'Unknown error'));
+      setPhase('error', { message: String(message.error || 'Unknown error') });
       break;
     case MSG.STATUS_PROGRESS:
-      updateProgress(message.percent as number);
+      updateProgress(Number(message.percent || 0));
       break;
   }
   return false;
@@ -319,7 +331,7 @@ async function loadStoredLogs(): Promise<void> {
       logs.forEach((entry: LogEntry) => addLog(entry));
     }
   } catch {
-    // No stored logs
+    // Session logs unavailable
   }
 }
 

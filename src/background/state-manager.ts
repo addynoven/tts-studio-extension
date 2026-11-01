@@ -3,7 +3,7 @@
  * All modules read/write state through here.
  */
 
-import { getPlayback, setPlayback, getHistory, addToHistory } from '../shared/storage.js';
+import { getPlayback, setPlayback, addToHistory } from '../shared/storage.js';
 
 /**
  * Listen for storage changes and broadcast to relevant modules.

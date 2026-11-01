@@ -129,7 +129,7 @@ function renderModules(moduleStatus: Record<string, ModuleStatus>): void {
   }
 }
 
-function renderPhase(phase: string, detail: Record<string, unknown>, elapsedMs: number): void {
+function renderPhase(phase: string, detail: Record<string, unknown>, _elapsedMs: number): void {
   const container = dashboardEl!.querySelector('#dash-phase') as HTMLDivElement;
   const label = container.querySelector('span:first-child')!;
 
