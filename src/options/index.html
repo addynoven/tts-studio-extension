@@ -3,11 +3,208 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>TTS Studio Settings</title>
+  <title>TTS Studio — Settings & Engine Preferences</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./options.css" />
 </head>
 <body>
-  <h1>⚙️ TTS Studio Settings</h1>
-  <p>Settings panel coming in Phase 2.</p>
+  <div class="container">
+    <!-- Header -->
+    <header class="header">
+      <div class="logo-wrap">
+        <div class="logo-icon">🎙️</div>
+        <div class="logo-title">TTS <span>Studio</span> Settings</div>
+      </div>
+      <div class="version-badge">v1.2.0 • Offline Ready</div>
+    </header>
+
+    <!-- Engine & Hardware Acceleration -->
+    <section class="card">
+      <h2 class="card-title">⚡ Engine & Hardware Acceleration</h2>
+      <p class="card-desc">Configure neural synthesis and GPU device offloading.</p>
+
+      <div class="setting-row">
+        <div class="setting-info">
+          <span class="setting-label">Default TTS Engine</span>
+          <span class="setting-subtext">Kokoro-82M offers studio-grade neural voice; Instant uses OS speech with 0ms startup.</span>
+        </div>
+        <select id="defaultModelSelect">
+          <option value="kokoro">Kokoro-82M (Neural AI · WebGPU)</option>
+          <option value="native">Instant (Native OS · 0ms)</option>
+        </select>
+      </div>
+
+      <div class="setting-row">
+        <div class="setting-info">
+          <span class="setting-label">WebGPU Hardware Acceleration</span>
+          <span class="setting-subtext">Accelerates neural inference on your dedicated GPU (NVIDIA RTX / Vulkan).</span>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="gpuToggle" />
+          <span class="slider"></span>
+        </label>
+      </div>
+    </section>
+
+    <!-- Voice & Playback -->
+    <section class="card">
+      <h2 class="card-title">🎧 Voice & Playback Defaults</h2>
+      <p class="card-desc">Set your preferred default voice and reading speed.</p>
+
+      <div class="setting-row">
+        <div class="setting-info">
+          <span class="setting-label">Default Voice</span>
+          <span class="setting-subtext">Select from 28 curated American and British voices.</span>
+        </div>
+        <select id="defaultVoiceSelect"></select>
+      </div>
+
+      <div class="setting-row">
+        <div class="setting-info">
+          <span class="setting-label">Playback Speed</span>
+          <span class="setting-subtext">Default reading rate multiplier.</span>
+        </div>
+        <div class="range-wrap">
+          <input type="range" id="speedSlider" min="0.5" max="2.0" step="0.05" value="1.0" />
+          <span class="range-val" id="speedVal">1.0×</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Text Sanitization & Reading Rules -->
+    <section class="card">
+      <h2 class="card-title">🧹 Text Sanitization & Cleaning</h2>
+      <p class="card-desc">Control what parts of web pages are spoken aloud.</p>
+
+      <div class="setting-row">
+        <div class="setting-info">
+          <span class="setting-label">Skip Code Blocks</span>
+          <span class="setting-subtext">Ignore &lt;pre&gt; and code snippets during article reading.</span>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="skipCodeBlocks" />
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <div class="setting-row">
+        <div class="setting-info">
+          <span class="setting-label">Skip Raw URLs</span>
+          <span class="setting-subtext">Avoid reading lengthy http/https web links.</span>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="skipUrls" />
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <div class="setting-row">
+        <div class="setting-info">
+          <span class="setting-label">Skip Emojis</span>
+          <span class="setting-subtext">Strip decorative emojis from the spoken text stream.</span>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="skipEmojis" />
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <div class="setting-row">
+        <div class="setting-info">
+          <span class="setting-label">Strip Markdown Formatting</span>
+          <span class="setting-subtext">Remove asterisks, hashes, and formatting markers.</span>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="stripMarkdown" />
+          <span class="slider"></span>
+        </label>
+      </div>
+    </section>
+
+    <!-- Visual Highlighting & Karaoke -->
+    <section class="card">
+      <h2 class="card-title">✨ Highlighting & Reading Tracking</h2>
+      <p class="card-desc">Customize dual-layer word and sentence tracking via CSS Highlight API.</p>
+
+      <div class="setting-row">
+        <div class="setting-info">
+          <span class="setting-label">Auto-Scroll Page</span>
+          <span class="setting-subtext">Smoothly scroll the window to keep the spoken sentence in view.</span>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="autoScroll" />
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <div class="setting-row">
+        <div class="setting-info">
+          <span class="setting-label">Highlight Color</span>
+          <span class="setting-subtext">Base color tint for the active reading sentence.</span>
+        </div>
+        <select id="highlightColor">
+          <option value="#ffeb3b">Amber Glow (#ffeb3b)</option>
+          <option value="#10b981">Emerald Green (#10b981)</option>
+          <option value="#38bdf8">Sky Blue (#38bdf8)</option>
+          <option value="#c084fc">Violet Purple (#c084fc)</option>
+        </select>
+      </div>
+    </section>
+
+    <!-- Offline Storage & Cache -->
+    <section class="card">
+      <h2 class="card-title">💾 Offline Storage & Cache</h2>
+      <p class="card-desc">Manage locally cached model weights and IndexedDB storage persistence.</p>
+
+      <div class="setting-row">
+        <div class="setting-info">
+          <span class="setting-label">Storage Eviction Protection</span>
+          <span class="setting-subtext" id="storageStatusText">Checking persistent storage...</span>
+        </div>
+        <button class="btn btn-secondary" id="btnRequestPersist">Enable Protection</button>
+      </div>
+
+      <div class="setting-row">
+        <div class="setting-info">
+          <span class="setting-label">Clear Cached Models</span>
+          <span class="setting-subtext">Free stored browser cache (requires re-downloading model on next use).</span>
+        </div>
+        <button class="btn btn-danger" id="btnClearCache">Clear Cache</button>
+      </div>
+    </section>
+
+    <!-- Keyboard Shortcuts -->
+    <section class="card">
+      <h2 class="card-title">⌨️ Keyboard Shortcuts</h2>
+      <p class="card-desc">Trigger reading from anywhere without opening the popup.</p>
+
+      <table class="shortcut-table">
+        <tbody>
+          <tr>
+            <td>Read Selection / Article</td>
+            <td style="text-align: right;"><span class="key-badge">Alt + Shift + R</span></td>
+          </tr>
+          <tr>
+            <td>Play / Pause Speech</td>
+            <td style="text-align: right;"><span class="key-badge">Alt + Shift + S</span></td>
+          </tr>
+          <tr>
+            <td>Next Sentence</td>
+            <td style="text-align: right;"><span class="key-badge">Alt + Shift + N</span></td>
+          </tr>
+          <tr>
+            <td>Previous Sentence</td>
+            <td style="text-align: right;"><span class="key-badge">Alt + Shift + P</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+  </div>
+
+  <div class="toast" id="toast">Settings saved</div>
+
   <script type="module" src="./index.ts"></script>
 </body>
 </html>

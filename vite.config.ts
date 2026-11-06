@@ -106,12 +106,6 @@ function copyLegacyAssets() {
   if (existsSync(resolve(legacy, 'icons'))) {
     copyDir(resolve(legacy, 'icons'), resolve(distAssets, 'icons'));
   }
-  if (existsSync(resolve(legacy, 'lib'))) {
-    copyDir(resolve(legacy, 'lib'), resolve(distAssets, 'lib'));
-  }
-  if (existsSync(resolve(legacy, 'models'))) {
-    copyDir(resolve(legacy, 'models'), resolve(distAssets, 'models'));
-  }
 }
 
 /**

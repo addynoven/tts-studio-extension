@@ -22,6 +22,7 @@ const charCount = document.getElementById('charCount') as HTMLSpanElement;
 const btnGenerate = document.getElementById('btnGenerate') as HTMLButtonElement;
 const btnStop = document.getElementById('btnStop') as HTMLButtonElement;
 const btnSelected = document.getElementById('btnSelected') as HTMLButtonElement;
+const btnOptions = document.getElementById('btnOptions') as HTMLButtonElement;
 const btnDebug = document.getElementById('btnDebug') as HTMLButtonElement;
 const gpuToggle = document.getElementById('gpuToggle') as HTMLDivElement;
 
@@ -44,6 +45,15 @@ const GENERATION_TIMEOUT_MS = 60000; // 60s safety timeout
 async function init(): Promise<void> {
   setModuleStatus('popup', 'active');
   createDebugPanel(body);
+
+  // Options page button
+  btnOptions?.addEventListener('click', () => {
+    if (chrome.runtime?.openOptionsPage) {
+      chrome.runtime.openOptionsPage();
+    } else {
+      window.open(chrome.runtime.getURL('options/index.html'));
+    }
+  });
 
   // Debug toggle button
   btnDebug.addEventListener('click', () => {

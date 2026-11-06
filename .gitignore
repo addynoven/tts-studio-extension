@@ -48,6 +48,9 @@ src/assets/lib/
 # Added by code-review-graph
 .code-review-graph/*
 
+# Release archives
+*.zip
+
 #Added by Graphify
 graphify-out/*
 

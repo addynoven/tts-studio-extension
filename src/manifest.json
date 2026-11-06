@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "TTS Studio",
-  "version": "1.1.0",
-  "description": "Browser TTS with KittenTTS & Piper — 100% local, no server",
+  "version": "1.2.0",
+  "description": "Studio-grade offline neural speech with Kokoro-82M WebGPU and Instant Native TTS — 100% private, zero cloud, in-page karaoke tracking.",
   "permissions": [
     "activeTab",
     "contextMenus",
@@ -48,9 +48,7 @@
   "web_accessible_resources": [
     {
       "resources": [
-        "assets/lib/*",
-        "assets/models/*",
-        "assets/models/**/*",
+        "assets/icons/*",
         "mathmaps/*",
         "transformers/*"
       ],

@@ -1,11 +1,12 @@
 {
   "name": "tts-studio-extension",
-  "version": "1.1.0",
-  "description": "Browser TTS with KittenTTS, Kokoro & Piper — 100% local, no server",
+  "version": "1.2.0",
+  "description": "Studio-grade offline neural speech with Kokoro-82M WebGPU and Instant Native TTS — 100% private, zero cloud, in-page karaoke tracking.",
   "type": "module",
   "scripts": {
     "dev": "vite build --watch --mode development",
     "build": "vite build",
+    "package": "npm run build && node scripts/package.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint src/",
