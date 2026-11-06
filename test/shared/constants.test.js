@@ -13,6 +13,11 @@ import {
 
 describe('constants', () => {
   describe('VOICES', () => {
+    it('has kokoro voices', () => {
+      expect(VOICES.kokoro.length).toBe(9);
+      expect(VOICES.kokoro[0].id).toBe('af_heart');
+    });
+
     it('has kitten voices', () => {
       expect(VOICES.kitten.length).toBe(8);
       expect(VOICES.kitten[0].id).toBe('Bella');
@@ -25,14 +30,18 @@ describe('constants', () => {
 
   describe('DEFAULTS', () => {
     it('has expected default values', () => {
-      expect(DEFAULTS.model).toBe('piper');
-      expect(DEFAULTS.voice).toBe('3922');
+      expect(DEFAULTS.model).toBe('kokoro');
+      expect(DEFAULTS.voice).toBe('af_heart');
       expect(DEFAULTS.speed).toBe(1.0);
-      expect(DEFAULTS.useGPU).toBe(false);
+      expect(DEFAULTS.useGPU).toBe(true);
     });
   });
 
   describe('defaultVoiceForModel', () => {
+    it('returns af_heart for kokoro', () => {
+      expect(defaultVoiceForModel('kokoro')).toBe('af_heart');
+    });
+
     it('returns Bella for kitten', () => {
       expect(defaultVoiceForModel('kitten')).toBe('Bella');
     });
@@ -41,8 +50,8 @@ describe('constants', () => {
       expect(defaultVoiceForModel('piper')).toBe('3922');
     });
 
-    it('returns 3922 for unknown model', () => {
-      expect(defaultVoiceForModel('unknown')).toBe('3922');
+    it('returns af_heart for unknown model', () => {
+      expect(defaultVoiceForModel('unknown')).toBe('af_heart');
     });
   });
 

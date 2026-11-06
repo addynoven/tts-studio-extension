@@ -10,6 +10,7 @@ export interface ChunkQueueEntry {
   buffer: AudioBuffer;
   playbackRate: number;
   semanticId?: number | string;
+  wordTimings?: { word: string; charIndex: number; charLength: number; startTime: number; endTime: number }[];
 }
 
 export interface PauseQueueEntry {
@@ -26,7 +27,15 @@ export interface TimingInfo {
   duration: number;
 }
 
+export interface WordTimingInfo {
+  word: string;
+  charIndex: number;
+  charLength: number;
+  semanticId?: number | string;
+}
+
 export type TimingCallback = (info: TimingInfo) => void;
+export type WordTimingCallback = (info: WordTimingInfo) => void;
 export type CompletionCallback = () => void;
 
 let ctx: AudioContext | null = null;
@@ -38,9 +47,11 @@ let nextPlayIndex = 0;
 let isScheduling = false;
 let isPaused = false;
 let isDrained = false;
+let prebufferTarget = 1;
 
 // Callbacks
 let timingCallback: TimingCallback | null = null;
+let wordTimingCallback: WordTimingCallback | null = null;
 let completionCallback: CompletionCallback | null = null;
 
 const activeTimeouts = new Set<ReturnType<typeof setTimeout>>();
@@ -48,6 +59,14 @@ const activeSources = new Set<AudioBufferSourceNode>();
 
 export function setTimingCallback(fn: TimingCallback | null): void {
   timingCallback = fn;
+}
+
+export function setWordTimingCallback(fn: WordTimingCallback | null): void {
+  wordTimingCallback = fn;
+}
+
+export function setPrebufferTarget(target: number): void {
+  prebufferTarget = Math.max(1, target);
 }
 
 export function setPlaybackCompleteCallback(fn: CompletionCallback | null): void {
@@ -84,14 +103,15 @@ export function enqueueChunk(
   index: number,
   audioBuffer: AudioBuffer,
   playbackRate = 1.0,
-  semanticId?: number | string
+  semanticId?: number | string,
+  wordTimings?: { word: string; charIndex: number; charLength: number; startTime: number; endTime: number }[]
 ): void {
   log(
     'offscreen',
     'log',
     `Scheduler: enqueueChunk(${index}, id=${semanticId ?? index}), dur=${audioBuffer.duration.toFixed(3)}s, rate=${playbackRate.toFixed(2)}`
   );
-  queue.set(index, { __chunk: true, buffer: audioBuffer, playbackRate, semanticId });
+  queue.set(index, { __chunk: true, buffer: audioBuffer, playbackRate, semanticId, wordTimings });
   setQueueState({ queueSize: queue.size, scheduledIndex: nextPlayIndex });
   tryScheduleNext();
 }
@@ -111,6 +131,13 @@ export function enqueuePause(index: number, durationSeconds: number): void {
  */
 function tryScheduleNext(): void {
   if (isScheduling || isPaused) return;
+
+  // Pre-buffering: if starting playback from chunk 0 and queue is not drained yet, wait for prebuffer target
+  if (nextPlayIndex === 0 && !isDrained && queue.size < prebufferTarget) {
+    log('offscreen', 'log', `Scheduler: prebuffering ${queue.size}/${prebufferTarget} chunks before starting`);
+    return;
+  }
+
   isScheduling = true;
 
   const context = getContext();
@@ -127,7 +154,7 @@ function tryScheduleNext(): void {
       continue;
     }
 
-    const { buffer, playbackRate, semanticId } = entry;
+    const { buffer, playbackRate, semanticId, wordTimings } = entry;
     const source = context.createBufferSource();
     source.buffer = buffer;
     if (playbackRate !== 1.0) {
@@ -175,6 +202,27 @@ function tryScheduleNext(): void {
           }
         }, delayMs);
         activeTimeouts.add(timerId);
+      }
+    }
+
+    if (wordTimings && wordTimingCallback) {
+      for (const wt of wordTimings) {
+        const wordOffsetSec = wt.startTime / playbackRate;
+        const wordStartAbsolute = start + wordOffsetSec;
+        const wordDelayMs = Math.max(0, (wordStartAbsolute - context.currentTime) * 1000);
+
+        const wordTimerId = setTimeout(() => {
+          activeTimeouts.delete(wordTimerId);
+          if (wordTimingCallback && !isPaused) {
+            wordTimingCallback({
+              word: wt.word,
+              charIndex: wt.charIndex,
+              charLength: wt.charLength,
+              semanticId
+            });
+          }
+        }, wordDelayMs);
+        activeTimeouts.add(wordTimerId);
       }
     }
 

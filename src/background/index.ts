@@ -9,6 +9,7 @@ import { ensureOffscreen, closeOffscreen } from './offscreen-manager.js';
 import { initContextMenus } from './context-menus.js';
 import { initCommands } from './commands.js';
 import { initStateSync } from './state-manager.js';
+import { speakNative, stopNative, pauseNative, isNativeSpeaking } from './native-tts.js';
 import { log } from '../shared/logger.js';
 import { setModuleStatus, recordError } from '../shared/state-tracker.js';
 import { getSettings } from '../shared/storage.js';
@@ -134,6 +135,42 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     log('bg', 'log', 'STREAM_START received, forwarding to content');
     forwardToContent(message);
     return false;
+  }
+
+  // ── Native TTS Routing ──
+  if (message.type === MSG.TTS_GENERATE && message.model === 'native') {
+    log('bg', 'log', 'Native TTS generate requested');
+    stopNative();
+    speakNative(String(message.text || ''), {
+      voice: typeof message.voice === 'string' ? message.voice : undefined,
+      speed: Number(message.speed ?? 1.0),
+      onStart: () => {
+        chrome.runtime.sendMessage({ target: 'popup', type: MSG.STATUS_PLAYING, _forwarded: true }).catch(() => {});
+        forwardToContent({ type: MSG.STATUS_PLAYING });
+      },
+      onWord: (charIndex, charLength) => {
+        forwardToContent({ type: MSG.HIGHLIGHT_WORD, charIndex, charLength });
+      },
+      onEnd: () => {
+        chrome.runtime.sendMessage({ target: 'popup', type: MSG.STATUS_DONE, _forwarded: true }).catch(() => {});
+        forwardToContent({ type: MSG.STATUS_DONE });
+      },
+      onError: (err) => {
+        chrome.runtime.sendMessage({ target: 'popup', type: MSG.STATUS_ERROR, error: err, _forwarded: true }).catch(() => {});
+      }
+    });
+    return false;
+  }
+
+  if (message.type === MSG.TTS_STOP) {
+    stopNative();
+  }
+
+  if (message.type === MSG.TTS_TOGGLE_PLAYBACK) {
+    if (isNativeSpeaking()) {
+      pauseNative();
+      return false;
+    }
   }
 
   // ── Popup/commands → offscreen ──

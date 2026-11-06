@@ -8,6 +8,7 @@ const HIGHLIGHT_CLASS = 'tts-studio-highlight';
 const ACTIVE_CLASS = 'tts-studio-active';
 const STYLE_ID = 'tts-studio-highlight-styles';
 const CSS_HIGHLIGHT_NAME = 'tts-active';
+const CSS_WORD_HIGHLIGHT_NAME = 'tts-word';
 
 export interface MappedBlock {
   el: Element;
@@ -27,6 +28,7 @@ let _currentRange: Range | null = null;
 let mappedBlocks: MappedBlock[] | null = null;
 let textMap: TextMap | null = null;
 let lastMatchEnd = 0;
+let currentSentenceStart = 0;
 
 function supportsCssHighlights(): boolean {
   return typeof CSS !== 'undefined' && 'highlights' in CSS && typeof Highlight !== 'undefined';
@@ -39,11 +41,16 @@ function ensureStyles(): void {
   style.id = STYLE_ID;
   style.textContent = `
     ::highlight(${CSS_HIGHLIGHT_NAME}) {
-      background-color: rgba(255, 235, 59, 0.45);
+      background-color: rgba(255, 235, 59, 0.35);
       color: inherit;
     }
+    ::highlight(${CSS_WORD_HIGHLIGHT_NAME}) {
+      background-color: rgba(59, 130, 246, 0.45);
+      color: inherit;
+      border-radius: 2px;
+    }
     .${HIGHLIGHT_CLASS} {
-      background-color: rgba(255, 235, 59, 0.45) !important;
+      background-color: rgba(255, 235, 59, 0.35) !important;
       color: inherit !important;
       border-radius: 3px !important;
       transition: background-color 0.2s ease !important;
@@ -55,10 +62,13 @@ function ensureStyles(): void {
     }
     @media (prefers-color-scheme: dark) {
       ::highlight(${CSS_HIGHLIGHT_NAME}) {
-        background-color: rgba(251, 191, 36, 0.35);
+        background-color: rgba(251, 191, 36, 0.28);
+      }
+      ::highlight(${CSS_WORD_HIGHLIGHT_NAME}) {
+        background-color: rgba(96, 165, 250, 0.5);
       }
       .${HIGHLIGHT_CLASS} {
-        background-color: rgba(251, 191, 36, 0.35) !important;
+        background-color: rgba(251, 191, 36, 0.28) !important;
         box-shadow: 0 0 0 2px rgba(251, 191, 36, 0.25) !important;
       }
       .${ACTIVE_CLASS} {
@@ -109,6 +119,7 @@ export function highlightSentence(chunkText: string): void {
 
   const match = findChunk(chunkText);
   if (match) {
+    currentSentenceStart = match.start;
     const range = createRangeFromOffsets(match.start, match.end);
     if (range) {
       applyHighlightRange(range);
@@ -299,6 +310,7 @@ function clearHighlightInternal(): void {
   if (supportsCssHighlights()) {
     try {
       CSS.highlights.delete(CSS_HIGHLIGHT_NAME);
+      CSS.highlights.delete(CSS_WORD_HIGHLIGHT_NAME);
     } catch {}
   }
   if (currentHighlightEl) {
@@ -309,6 +321,24 @@ function clearHighlightInternal(): void {
     el.classList.remove(HIGHLIGHT_CLASS, ACTIVE_CLASS);
   });
   _currentRange = null;
+}
+
+/**
+ * Highlight a specific word within the currently active sentence.
+ */
+export function highlightWord(charIndex: number, charLength = 1): void {
+  if (!supportsCssHighlights()) return;
+  if (!textMap) buildTextMap();
+
+  const startOffset = currentSentenceStart + charIndex;
+  const endOffset = startOffset + Math.max(1, charLength);
+  const wordRange = createRangeFromOffsets(startOffset, endOffset);
+  if (wordRange) {
+    try {
+      const wordHl = new Highlight(wordRange);
+      CSS.highlights.set(CSS_WORD_HIGHLIGHT_NAME, wordHl);
+    } catch {}
+  }
 }
 
 function scrollIntoViewIfNeeded(el: Element): void {

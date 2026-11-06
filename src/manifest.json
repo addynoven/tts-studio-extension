@@ -8,7 +8,12 @@
     "contextMenus",
     "storage",
     "offscreen",
-    "scripting"
+    "scripting",
+    "tts"
+  ],
+  "host_permissions": [
+    "https://huggingface.co/*",
+    "https://*.hf.co/*"
   ],
   "commands": {
     "read-article": {

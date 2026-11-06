@@ -1,5 +1,5 @@
 /**
- * TTS Worker — Runs ONNX inference off the main thread.
+ * TTS Worker — Runs ONNX / Kokoro inference off the main thread.
  * Isolates heavy WASM/WebGPU compute from Chrome's extension message loop.
  */
 
@@ -31,7 +31,7 @@ self.onmessage = async (e: MessageEvent<{ id: number; type: string; [key: string
   if (type === 'load') {
     try {
       const { model, useGPU } = payload as unknown as WorkerLoadPayload;
-      await loadModel(model, null, useGPU);
+      await loadModel(model, null, useGPU !== false);
       self.postMessage({ type: 'loaded', id });
     } catch (err) {
       self.postMessage({ type: 'error', id, error: (err as Error).message });

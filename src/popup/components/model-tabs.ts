@@ -38,5 +38,5 @@ export function setActiveModel(model: string): void {
  * Get the currently active model.
  */
 export function getActiveModel(): string {
-  return body.dataset.model || 'piper';
+  return body.dataset.model || 'kokoro';
 }

@@ -17,8 +17,8 @@ describe('storage', () => {
   describe('getSettings', () => {
     it('returns defaults when nothing stored', async () => {
       const settings = await getSettings();
-      expect(settings.defaultModel).toBe('piper');
-      expect(settings.defaultVoice).toBe('3922');
+      expect(settings.defaultModel).toBe('kokoro');
+      expect(settings.defaultVoice).toBe('af_heart');
       expect(settings.defaultSpeed).toBe(1.0);
       expect(settings.sanitization.skipCodeBlocks).toBe(true);
       expect(settings.highlight.autoScroll).toBe(true);
@@ -29,7 +29,7 @@ describe('storage', () => {
       const settings = await getSettings();
       expect(settings.defaultModel).toBe('kitten');
       expect(settings.defaultSpeed).toBe(1.5);
-      expect(settings.defaultVoice).toBe('3922'); // default preserved
+      expect(settings.defaultVoice).toBe('af_heart'); // default preserved
     });
   });
 
@@ -51,7 +51,7 @@ describe('storage', () => {
       await updateSettings({ defaultSpeed: 0.8 });
       const stored = await getSettings();
       expect(stored.defaultSpeed).toBe(0.8);
-      expect(stored.defaultModel).toBe('piper'); // default
+      expect(stored.defaultModel).toBe('kokoro'); // default
     });
   });
 

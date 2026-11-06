@@ -6,10 +6,44 @@
 import { MSG } from '../shared/constants.js';
 import { extractSelection } from './extractor/index.js';
 import { extractMappedArticle, BlockIterator, type ExtractedBlock } from './extractor/dom-mapper.js';
-import { highlightSentence, highlightElement, clearAll, setMappedBlocks } from './highlighter.js';
+import { highlightSentence, highlightElement, highlightWord, clearAll, setMappedBlocks } from './highlighter.js';
+import { initInPageUI, showMiniPlayer, updateMiniPlayerState, hideMiniPlayer } from './in-page-ui.js';
+import { getSettings, updateSettings } from '../shared/storage.js';
 import { log } from '../shared/logger.js';
 
 log('content', 'log', 'Content script loaded on', location.hostname);
+
+// Initialize in-page floating quick-play button and bottom pill player
+initInPageUI({
+  onReadSelection: async (text: string) => {
+    const settings = await getSettings();
+    chrome.runtime.sendMessage({
+      target: 'background',
+      type: MSG.TTS_GENERATE,
+      text,
+      model: settings.defaultModel,
+      voice: settings.defaultVoice,
+      speed: settings.defaultSpeed,
+      useGPU: settings.executionProvider === 'webgpu'
+    }).catch(() => {});
+  },
+  onTogglePlay: () => {
+    chrome.runtime.sendMessage({ target: 'background', type: MSG.TTS_TOGGLE_PLAYBACK }).catch(() => {});
+  },
+  onStop: () => {
+    chrome.runtime.sendMessage({ target: 'background', type: MSG.TTS_STOP }).catch(() => {});
+    clearAll();
+  },
+  onSkipForward: () => {
+    chrome.runtime.sendMessage({ target: 'background', type: MSG.TTS_SKIP_FORWARD }).catch(() => {});
+  },
+  onSkipBackward: () => {
+    chrome.runtime.sendMessage({ target: 'background', type: MSG.TTS_SKIP_BACKWARD }).catch(() => {});
+  },
+  onSpeedChange: (speed: number) => {
+    void updateSettings({ defaultSpeed: speed });
+  }
+});
 
 let streamIterator: BlockIterator | null = null;
 let streamActive = false;
@@ -67,6 +101,13 @@ function ttsMessageHandler(
       sendResponse({ ok: true });
       return false;
 
+    case MSG.HIGHLIGHT_WORD:
+      if (typeof message.charIndex === 'number') {
+        highlightWord(message.charIndex, (message.charLength as number) || 1);
+      }
+      sendResponse({ ok: true });
+      return false;
+
     case MSG.HIGHLIGHT_BLOCK:
       if (message.blockIndex !== undefined) {
         handleHighlightBlock(message.blockIndex);
@@ -74,8 +115,28 @@ function ttsMessageHandler(
       sendResponse({ ok: true });
       return false;
 
+    case MSG.STATUS_PLAYING:
+      showMiniPlayer();
+      updateMiniPlayerState({ isPlaying: true });
+      sendResponse({ ok: true });
+      return false;
+
+    case MSG.STATUS_PAUSED:
+      updateMiniPlayerState({ isPlaying: false });
+      sendResponse({ ok: true });
+      return false;
+
+    case MSG.STATUS_DONE:
+    case MSG.STREAM_END:
+    case MSG.TTS_STOP:
+      hideMiniPlayer();
+      clearAll();
+      sendResponse({ ok: true });
+      return false;
+
     case MSG.CLEAR_HIGHLIGHTS:
       clearAll();
+      hideMiniPlayer();
       streamIterator = null;
       streamActive = false;
       sendResponse({ ok: true });

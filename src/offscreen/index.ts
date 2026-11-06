@@ -15,6 +15,7 @@ import {
   createAudioBuffer,
   resumeAudioContext,
   setTimingCallback,
+  setWordTimingCallback,
   setPlaybackCompleteCallback,
   setQueueDrained
 } from './audio/scheduler.js';
@@ -199,6 +200,15 @@ setTimingCallback(({ index, semanticId, startTime, duration }) => {
       duration
     });
   }
+});
+
+setWordTimingCallback(({ word, charIndex, charLength, semanticId }) => {
+  toContent(MSG.HIGHLIGHT_WORD, {
+    word,
+    charIndex,
+    charLength,
+    semanticId
+  });
 });
 
 setPlaybackCompleteCallback(() => {
@@ -444,15 +454,16 @@ async function streamSynthesisPump(): Promise<void> {
 
     log('offscreen', 'log', `Synthesizing block ${index}, ${text.length} chars`);
     const start = performance.now();
-    const { audio, sampleRate, playbackRate } = await inferViaWorker(model, text, voice, speed);
+    const inferRes = await inferViaWorker(model, text, voice, speed);
+    const { audio, sampleRate, playbackRate } = inferRes;
     const elapsed = Math.round(performance.now() - start);
     recordTiming(`stream_block_${index}`, elapsed);
 
     const buffer = createAudioBuffer(new Float32Array(audio), sampleRate);
     const schedIdx = stream.schedulerIndex++;
 
-    // Enqueue chunk with semanticId set to original block.index
-    enqueueChunk(schedIdx, buffer, playbackRate, index);
+    // Enqueue chunk with semanticId set to original block.index and wordTimings
+    enqueueChunk(schedIdx, buffer, playbackRate, index, inferRes.wordTimings);
     chunkTexts[schedIdx] = text;
 
     // Add pause between blocks
@@ -571,10 +582,11 @@ async function handleGenerate({ text, model, voice, speed, useGPU }: {
     if (sentences.length === 1) {
       log('offscreen', 'log', 'Single sentence — direct synthesis');
       addTimelineItem({ label: 'Synthesize text', status: 'running' });
-      const { audio, sampleRate, playbackRate } = await inferViaWorker(model, text, voice, speed);
+      const inferRes = await inferViaWorker(model, text, voice, speed);
+      const { audio, sampleRate, playbackRate } = inferRes;
       const buffer = createAudioBuffer(new Float32Array(audio), sampleRate);
       chunkTexts[0] = text;
-      enqueueChunk(0, buffer, playbackRate, 0);
+      enqueueChunk(0, buffer, playbackRate, 0, inferRes.wordTimings);
       setQueueDrained(true);
       updateTimelineItem('Synthesize text', { status: 'done' });
       log('offscreen', 'log', '=== SYNTHESIS COMPLETE (single) — audio playing ===');
@@ -665,14 +677,15 @@ function startSynthesisPump(): void {
 async function synthesizeChunk(index: number, label: string): Promise<void> {
   const chunkText = pb.sentences[index];
   const startTime = performance.now();
-  const { audio, sampleRate, playbackRate } = await inferViaWorker(pb.model, chunkText, pb.voice, pb.speed);
+  const inferRes = await inferViaWorker(pb.model, chunkText, pb.voice, pb.speed);
+  const { audio, sampleRate, playbackRate } = inferRes;
   const elapsed = Math.round(performance.now() - startTime);
   recordTiming(`chunk_${index}`, elapsed);
   log('offscreen', 'log', `Chunk[${index}] synthesized in ${elapsed}ms, ${audio.length} samples @ ${sampleRate}Hz`);
   updateTimelineItem(label, { status: 'done', durationMs: elapsed });
 
   const buffer = createAudioBuffer(new Float32Array(audio), sampleRate);
-  enqueueChunk(index * 2, buffer, playbackRate, index);
+  enqueueChunk(index * 2, buffer, playbackRate, index, inferRes.wordTimings);
   log('offscreen', 'log', `Chunk[${index}] enqueued at position ${index * 2}`);
 
   if (index < pb.totalChunks - 1) {

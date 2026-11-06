@@ -35,6 +35,13 @@ export interface TTSResult {
   audio: Float32Array;
   sampleRate: number;
   playbackRate: number;
+  wordTimings?: Array<{
+    word: string;
+    charIndex: number;
+    charLength: number;
+    startTime: number;
+    endTime: number;
+  }>;
 }
 
 export async function generateKitten(text: string, voice = 'Bella', speed = 1.0): Promise<TTSResult> {

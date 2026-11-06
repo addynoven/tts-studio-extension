@@ -152,6 +152,23 @@ function createTabsSendMessageMock() {
 
   commands: {
     onCommand: { addListener: vi.fn() }
+  },
+
+  tts: {
+    speak: vi.fn((text: string, options?: any, callback?: () => void) => {
+      if (options?.onEvent) {
+        options.onEvent({ type: 'start' });
+        options.onEvent({ type: 'word', charIndex: 0, charLength: 4 });
+        options.onEvent({ type: 'end' });
+      }
+      if (callback) callback();
+    }),
+    stop: vi.fn(),
+    pause: vi.fn(),
+    resume: vi.fn(),
+    getVoices: vi.fn((callback: (voices: any[]) => void) => {
+      callback([{ voiceName: 'native-default', lang: 'en-US' }]);
+    })
   }
 };
 

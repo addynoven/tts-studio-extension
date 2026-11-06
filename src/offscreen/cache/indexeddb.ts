@@ -60,6 +60,20 @@ export async function cacheDelete(key: string): Promise<void> {
   });
 }
 
+/**
+ * Request persistent storage from browser so Chrome never evicts cached models.
+ */
+export async function requestPersistentStorage(): Promise<boolean> {
+  if (typeof navigator !== 'undefined' && navigator.storage?.persist) {
+    try {
+      return await navigator.storage.persist();
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
 export async function cacheClear(): Promise<void> {
   const db = await openDB();
   return new Promise((resolve, reject) => {

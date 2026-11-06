@@ -1,6 +1,6 @@
 /**
  * Voice dropdown component.
- * Handles voice lists, dynamic Piper loading, and selection persistence.
+ * Handles voice lists for Kokoro-82M, Native OS voices, and legacy models.
  */
 
 import { VOICES, MODEL_PATHS } from '../../shared/constants.js';
@@ -8,6 +8,31 @@ import { VOICES, MODEL_PATHS } from '../../shared/constants.js';
 const voiceSelect = document.getElementById('voiceSelect') as HTMLSelectElement;
 
 let piperVoicesLoaded = false;
+let nativeVoicesLoaded = false;
+
+/**
+ * Load Native OS voices from chrome.tts.
+ */
+async function loadNativeVoices(): Promise<void> {
+  if (nativeVoicesLoaded) return;
+  if (typeof chrome === 'undefined' || !chrome.tts?.getVoices) return;
+
+  return new Promise((resolve) => {
+    chrome.tts.getVoices((voices) => {
+      const list = (voices || []).map((v) => ({
+        id: v.voiceName || 'default',
+        label: `${v.voiceName || 'System Default'} (${v.lang || 'system'})`
+      }));
+
+      (VOICES as Record<string, Array<{ id: string; label: string }>>).native = list.length > 0
+        ? list
+        : [{ id: 'default', label: 'System Default' }];
+
+      nativeVoicesLoaded = true;
+      resolve();
+    });
+  });
+}
 
 /**
  * Load Piper voices dynamically from the model config.
@@ -37,15 +62,18 @@ async function loadPiperVoices(): Promise<void> {
  * Populate the voice dropdown for a given model.
  */
 export async function populateVoices(model: string, savedVoice?: string): Promise<void> {
+  if (model === 'native') await loadNativeVoices();
   if (model === 'piper') await loadPiperVoices();
 
   const voices = (VOICES as Record<string, Array<{ id: string; label: string }>>)[model] || [];
-  voiceSelect.innerHTML = voices
-    .map(v => `<option value="${v.id}">${v.label}</option>`)
-    .join('');
+  if (voiceSelect) {
+    voiceSelect.innerHTML = voices
+      .map(v => `<option value="${v.id}">${v.label}</option>`)
+      .join('');
 
-  if (savedVoice && voices.some(v => v.id === savedVoice)) {
-    voiceSelect.value = savedVoice;
+    if (savedVoice && voices.some(v => v.id === savedVoice)) {
+      voiceSelect.value = savedVoice;
+    }
   }
 }
 
@@ -53,12 +81,12 @@ export async function populateVoices(model: string, savedVoice?: string): Promis
  * Get the currently selected voice.
  */
 export function getSelectedVoice(): string {
-  return voiceSelect.value;
+  return voiceSelect ? voiceSelect.value : '';
 }
 
 /**
  * Listen for voice changes.
  */
 export function onVoiceChange(callback: (voice: string) => void): void {
-  voiceSelect.addEventListener('change', () => callback(voiceSelect.value));
+  voiceSelect?.addEventListener('change', () => callback(voiceSelect.value));
 }

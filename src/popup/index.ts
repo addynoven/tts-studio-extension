@@ -62,7 +62,7 @@ async function init(): Promise<void> {
     await updateSettings({ defaultModel: model });
     await populateVoices(model, settings.defaultVoice);
   });
-  setActiveModel(settings.defaultModel || 'piper');
+  setActiveModel(settings.defaultModel || 'kokoro');
 
   // Voices
   await populateVoices(getActiveModel(), settings.defaultVoice);
