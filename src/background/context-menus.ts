@@ -4,7 +4,8 @@
  */
 
 import { MSG } from '../shared/constants.js';
-import { ensureOffscreen } from './offscreen-manager.js';
+import { sendToOffscreen } from './offscreen-manager.js';
+import { speakNative, stopNative } from './native-tts.js';
 import { getSettings } from '../shared/storage.js';
 import { defaultVoiceForModel } from '../shared/constants.js';
 import { ensureContentScript } from './content-script-injector.js';
@@ -52,25 +53,37 @@ async function handleMenuClick(info: chrome.contextMenus.OnClickData): Promise<v
       if (tab?.id) {
         await ensureContentScript(tab.id);
       }
-      if (model === 'native') {
-        chrome.runtime.sendMessage({
-          type: MSG.TTS_GENERATE,
-          text: info.selectionText.trim(),
-          model: 'native',
-          voice,
-          speed: Number(speed)
-        }).catch((e: Error) => console.error('[TTS Studio] TTS_GENERATE failed:', e.message));
+      const targetModel = model === 'native' ? 'native' : 'kokoro';
+      if (targetModel === 'native') {
+        stopNative();
+        speakNative(info.selectionText.trim(), {
+          voice: voice !== 'default' ? voice : undefined,
+          speed: Number(speed),
+          onStart: () => {
+            chrome.runtime.sendMessage({ target: 'popup', type: MSG.STATUS_PLAYING, _forwarded: true }).catch(() => {});
+            if (tab?.id) chrome.tabs.sendMessage(tab.id, { type: MSG.STATUS_PLAYING, _forwarded: true }).catch(() => {});
+          },
+          onWord: (charIndex, charLength) => {
+            if (tab?.id) chrome.tabs.sendMessage(tab.id, { type: MSG.HIGHLIGHT_WORD, charIndex, charLength, _forwarded: true }).catch(() => {});
+          },
+          onEnd: () => {
+            chrome.runtime.sendMessage({ target: 'popup', type: MSG.STATUS_DONE, _forwarded: true }).catch(() => {});
+            if (tab?.id) chrome.tabs.sendMessage(tab.id, { type: MSG.STATUS_DONE, _forwarded: true }).catch(() => {});
+          },
+          onError: (err) => {
+            chrome.runtime.sendMessage({ target: 'popup', type: MSG.STATUS_ERROR, error: err, _forwarded: true }).catch(() => {});
+          }
+        });
       } else {
-        await ensureOffscreen();
-        chrome.runtime.sendMessage({
+        sendToOffscreen({
           target: 'offscreen',
           type: MSG.TTS_GENERATE,
           text: info.selectionText.trim(),
-          model,
+          model: targetModel,
           voice,
           speed: Number(speed),
           useGPU
-        }).catch((e: Error) => console.error('[TTS Studio] TTS_GENERATE failed:', e.message));
+        });
       }
       break;
     }

@@ -246,6 +246,25 @@ setPlaybackCompleteCallback(() => {
 chrome.runtime.onMessage.addListener((message) => {
   if (message.target !== 'offscreen') return;
 
+  if (message.type === MSG.TTS_PREWARM) {
+    log('offscreen', 'log', 'Pre-warming Kokoro neural engine in background...');
+    getSettings().then((settings) => {
+      const model = settings.defaultModel === 'native' ? 'native' : 'kokoro';
+      if (model === 'kokoro') {
+        const useGPU = settings.executionProvider === 'webgpu';
+        loadViaWorker('kokoro', useGPU)
+          .then(() => {
+            log('offscreen', 'log', 'Kokoro neural engine pre-warmed successfully in memory');
+            toBackground(MSG.OFFSCREEN_READY, { prewarmed: true });
+          })
+          .catch((e: Error) => {
+            log('offscreen', 'warn', 'Pre-warm background load failed:', e.message);
+          });
+      }
+    });
+    return;
+  }
+
   if (message.type === MSG.TTS_BUFFER) {
     void handleStreamBuffer(message.block as StreamBlock);
     return;

@@ -2,7 +2,8 @@ import { describe, it, expect, vi } from 'vitest';
 import { MSG } from '../../src/shared/constants.js';
 
 vi.mock('../../src/background/offscreen-manager.js', () => ({
-  ensureOffscreen: vi.fn(async () => {})
+  ensureOffscreen: vi.fn(async () => {}),
+  sendToOffscreen: vi.fn((msg) => { chrome.runtime.sendMessage(msg); })
 }));
 
 vi.mock('../../src/background/content-script-injector.js', () => ({

@@ -10,7 +10,7 @@
  */
 
 import { MSG } from '../shared/constants.js';
-import { ensureOffscreen } from './offscreen-manager.js';
+import { sendToOffscreen } from './offscreen-manager.js';
 import { ensureContentScript } from './content-script-injector.js';
 
 /**
@@ -34,18 +34,15 @@ export function initCommands(): void {
         if (tabId) {
           chrome.tabs.sendMessage(tabId, { type: MSG.TTS_STOP }).catch(() => {});
         }
-        await ensureOffscreen();
-        chrome.runtime.sendMessage({ target: 'offscreen', type: MSG.TTS_TOGGLE_PLAYBACK }).catch(() => {});
+        sendToOffscreen({ target: 'offscreen', type: MSG.TTS_TOGGLE_PLAYBACK });
         break;
 
       case 'skip-forward':
-        await ensureOffscreen();
-        chrome.runtime.sendMessage({ target: 'offscreen', type: MSG.TTS_SKIP_FORWARD }).catch(() => {});
+        sendToOffscreen({ target: 'offscreen', type: MSG.TTS_SKIP_FORWARD });
         break;
 
       case 'skip-backward':
-        await ensureOffscreen();
-        chrome.runtime.sendMessage({ target: 'offscreen', type: MSG.TTS_SKIP_BACKWARD }).catch(() => {});
+        sendToOffscreen({ target: 'offscreen', type: MSG.TTS_SKIP_BACKWARD });
         break;
     }
   });

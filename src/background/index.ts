@@ -5,7 +5,7 @@
  */
 
 import { MSG, defaultVoiceForModel } from '../shared/constants.js';
-import { ensureOffscreen, closeOffscreen } from './offscreen-manager.js';
+import { ensureOffscreen, setOffscreenReady, sendToOffscreen } from './offscreen-manager.js';
 import { initContextMenus } from './context-menus.js';
 import { initCommands } from './commands.js';
 import { initStateSync } from './state-manager.js';
@@ -43,51 +43,23 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   } catch (err) {
     log('bg', 'warn', 'Failed to auto-inject content scripts on install:', (err as Error).message);
   }
+
+  // Pre-warm offscreen neural engine in background after a brief delay
+  setTimeout(() => {
+    sendToOffscreen({ target: 'offscreen', type: MSG.TTS_PREWARM });
+  }, 1000);
 });
 
-// Close any stale offscreen document from a previous extension session
-closeOffscreen().catch(() => {});
-
-// ── Offscreen ready tracking ───────────────────────────────────────────────
-
-let offscreenReady = false;
-const offscreenMessageQueue: Array<Record<string, unknown>> = [];
-
-function flushOffscreenQueue(): void {
-  while (offscreenMessageQueue.length > 0) {
-    const msg = offscreenMessageQueue.shift();
-    if (!msg) continue;
-    chrome.runtime.sendMessage({
-      ...msg,
-      _forwarded: true
-    }).catch((e: Error) => {
-      log('bg', 'error', 'Failed to forward queued message to offscreen:', e.message);
-    });
-  }
-}
-
-function sendToOffscreen(message: Record<string, unknown>): void {
-  ensureOffscreen().then(() => {
-    setModuleStatus('offscreen', 'active');
-    if (offscreenReady) {
-      chrome.runtime.sendMessage({ ...message, _forwarded: true }).catch((e: Error) => {
-        log('bg', 'error', 'Failed to send to offscreen:', e.message);
-        recordError('bg', e.message);
-      });
-    } else {
-      log('bg', 'log', 'Queueing message for offscreen:', message.type);
-      offscreenMessageQueue.push(message);
-    }
-  }).catch((e: Error) => {
-    log('bg', 'error', 'ensureOffscreen failed:', e.message);
-    recordError('bg', e.message);
-    setModuleStatus('offscreen', 'error');
-  });
-}
+// Pre-warm on browser startup if enabled
+chrome.runtime.onStartup?.addListener(() => {
+  setTimeout(() => {
+    sendToOffscreen({ target: 'offscreen', type: MSG.TTS_PREWARM });
+  }, 1000);
+});
 
 // ── Helper: forward to active tab's content script ─────────────────────────
 
-function forwardToContent(message: Record<string, unknown>): void {
+export function forwardToContent(message: Record<string, unknown>): void {
   chrome.tabs.query({ active: true, currentWindow: true }).then((tabs) => {
     const tab = tabs[0];
     if (tab?.id) {
@@ -107,8 +79,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   // ── Offscreen announces it's ready ──
   if (message.type === MSG.OFFSCREEN_READY) {
     log('bg', 'log', 'Offscreen ready');
-    offscreenReady = true;
-    flushOffscreenQueue();
+    setOffscreenReady(true);
     return false;
   }
 
