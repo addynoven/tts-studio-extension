@@ -6,7 +6,7 @@
 import { MSG } from '../shared/constants.js';
 import { extractSelection } from './extractor/index.js';
 import { extractMappedArticle, BlockIterator, type ExtractedBlock } from './extractor/dom-mapper.js';
-import { highlightSentence, highlightElement, highlightWord, clearAll, setMappedBlocks } from './highlighter.js';
+import { highlightSentence, highlightElement, highlightWord, clearAll, setMappedBlocks, setHighlightRoot } from './highlighter.js';
 import { initInPageUI, showMiniPlayer, updateMiniPlayerState, hideMiniPlayer, showReloadToast, teardownInPageUI } from './in-page-ui.js';
 import { getSettings, updateSettings } from '../shared/storage.js';
 import { isExtensionValid } from '../shared/messaging.js';
@@ -61,6 +61,13 @@ initInPageUI({
       showReloadToast();
       teardownInPageUI();
       return;
+    }
+    const selection = window.getSelection();
+    if (selection && selection.rangeCount > 0) {
+      const range = selection.getRangeAt(0);
+      const container = range.commonAncestorContainer;
+      const rootEl = container instanceof Element ? container : container.parentElement;
+      if (rootEl) setHighlightRoot(rootEl);
     }
     try {
       const settings = await getSettings();

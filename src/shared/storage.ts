@@ -63,7 +63,7 @@ const DEFAULT_SETTINGS: Settings = {
     opacity: 0.4,
     autoScroll: true
   },
-  executionProvider: 'wasm',
+  executionProvider: 'webgpu',
   lastInputText: ''
 };
 

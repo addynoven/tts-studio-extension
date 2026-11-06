@@ -20,6 +20,8 @@ interface TextMap {
   nodes: Text[];
   offsets: number[];
   flat: string;
+  normFlat: string;
+  normToRaw: Int32Array;
 }
 
 let highlightStyleEl: HTMLStyleElement | null = null;
@@ -27,8 +29,15 @@ let currentHighlightEl: Element | null = null;
 let _currentRange: Range | null = null;
 let mappedBlocks: MappedBlock[] | null = null;
 let textMap: TextMap | null = null;
-let lastMatchEnd = 0;
+let lastNormMatchEnd = 0;
 let currentSentenceStart = 0;
+let activeRootElement: Element | null = null;
+
+export function setHighlightRoot(el: Element | null): void {
+  activeRootElement = el;
+  textMap = null;
+  lastNormMatchEnd = 0;
+}
 
 function supportsCssHighlights(): boolean {
   return typeof CSS !== 'undefined' && 'highlights' in CSS && typeof Highlight !== 'undefined';
@@ -123,20 +132,19 @@ export function highlightSentence(chunkText: string): void {
     const range = createRangeFromOffsets(match.start, match.end);
     if (range) {
       applyHighlightRange(range);
-      lastMatchEnd = match.end;
       return;
     }
 
     const blockEl = findBlockAncestor(match.start);
     if (blockEl) {
       applyHighlightToElement(blockEl);
-      lastMatchEnd = match.end;
       return;
     }
   }
 
   const normChunk = norm(chunkText);
-  const candidates = document.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote, td');
+  const root = activeRootElement || document.body;
+  const candidates = root.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote, td');
   for (const el of Array.from(candidates)) {
     if (norm(el.textContent || '').includes(normChunk)) {
       applyHighlightToElement(el);
@@ -230,13 +238,42 @@ function createRangeFromOffsets(start: number, end: number): Range | null {
   return null;
 }
 
+function normalizeChar(char: string): string {
+  if (/\s/.test(char)) return ' ';
+  if (char === '“' || char === '”') return '"';
+  if (char === '‘' || char === '’') return "'";
+  if (char === '–' || char === '—') return '-';
+  if (char === '…') return '...';
+  if (char === '\u00a0') return ' ';
+  return char.toLowerCase();
+}
+
+function normalizeQuery(query: string): string {
+  let result = '';
+  let inSpace = false;
+  for (let i = 0; i < query.length; i++) {
+    const n = normalizeChar(query[i]);
+    if (n === ' ') {
+      if (!inSpace && result.length > 0) {
+        result += ' ';
+        inSpace = true;
+      }
+    } else {
+      result += n;
+      inSpace = false;
+    }
+  }
+  return result.trim();
+}
+
 function buildTextMap(): void {
+  const root = activeRootElement || document.body;
   const nodes: Text[] = [];
   const offsets: number[] = [];
   let flat = '';
 
   const walker = document.createTreeWalker(
-    document.body,
+    root,
     NodeFilter.SHOW_TEXT,
     {
       acceptNode(node) {
@@ -261,21 +298,69 @@ function buildTextMap(): void {
     flat += node.textContent || '';
   }
 
-  textMap = { nodes, offsets, flat };
+  // Build normalized index map for resilient whitespace and character matching
+  let normFlat = '';
+  const normToRaw = new Int32Array(flat.length * 2);
+  let inSpace = false;
+  let normIdx = 0;
+
+  for (let i = 0; i < flat.length; i++) {
+    const n = normalizeChar(flat[i]);
+    if (n === ' ') {
+      if (!inSpace && normIdx > 0) {
+        normFlat += ' ';
+        normToRaw[normIdx++] = i;
+        inSpace = true;
+      }
+    } else {
+      for (let k = 0; k < n.length; k++) {
+        normFlat += n[k];
+        normToRaw[normIdx++] = i;
+      }
+      inSpace = false;
+    }
+  }
+
+  textMap = {
+    nodes,
+    offsets,
+    flat,
+    normFlat,
+    normToRaw: normToRaw.subarray(0, normIdx)
+  };
+  lastNormMatchEnd = 0;
 }
 
 function findChunk(query: string): { start: number; end: number } | null {
   if (!textMap) return null;
-  const flat = textMap.flat;
+  const { normFlat, normToRaw, flat } = textMap;
+  const normQ = normalizeQuery(query);
+  if (!normQ) return null;
 
-  let idx = flat.indexOf(query, lastMatchEnd);
-  if (idx === -1) idx = flat.indexOf(query, 0);
-  if (idx !== -1) return { start: idx, end: idx + query.length };
+  // 1. Search forward from last match end
+  let normIdx = normFlat.indexOf(normQ, lastNormMatchEnd);
 
-  const trimmed = query.trim();
-  idx = flat.indexOf(trimmed, lastMatchEnd);
-  if (idx === -1) idx = flat.indexOf(trimmed, 0);
-  if (idx !== -1) return { start: idx, end: idx + trimmed.length };
+  // 2. If not found, try a prefix (first 25 chars) to tolerate punctuation or line-end variation
+  if (normIdx === -1 && normQ.length > 25) {
+    const prefix = normQ.slice(0, 25);
+    normIdx = normFlat.indexOf(prefix, lastNormMatchEnd);
+  }
+
+  // 3. Only search from 0 if this is the start of playback (lastNormMatchEnd === 0)
+  // NEVER jump backwards in the middle of playback!
+  if (normIdx === -1 && lastNormMatchEnd === 0) {
+    normIdx = normFlat.indexOf(normQ, 0);
+  }
+
+  if (normIdx !== -1) {
+    const normEnd = Math.min(normIdx + normQ.length, normToRaw.length);
+    const rawStart = normToRaw[normIdx];
+    const rawEndChar = normToRaw[normEnd - 1] ?? rawStart;
+    const rawEnd = Math.min(flat.length, rawEndChar + 1);
+
+    lastNormMatchEnd = normEnd;
+    return { start: rawStart, end: rawEnd };
+  }
 
   return null;
 }
@@ -358,5 +443,6 @@ export function clearAll(): void {
   clearHighlightInternal();
   mappedBlocks = null;
   textMap = null;
-  lastMatchEnd = 0;
+  lastNormMatchEnd = 0;
+  activeRootElement = null;
 }
