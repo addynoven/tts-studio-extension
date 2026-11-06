@@ -25,9 +25,9 @@ describe('storage', () => {
     });
 
     it('merges stored values with defaults', async () => {
-      setLocalStored('settings', { defaultModel: 'kitten', defaultSpeed: 1.5 });
+      setLocalStored('settings', { defaultModel: 'native', defaultSpeed: 1.5 });
       const settings = await getSettings();
-      expect(settings.defaultModel).toBe('kitten');
+      expect(settings.defaultModel).toBe('native');
       expect(settings.defaultSpeed).toBe(1.5);
       expect(settings.defaultVoice).toBe('af_heart'); // default preserved
     });
@@ -36,15 +36,15 @@ describe('storage', () => {
   describe('setSettings / updateSettings', () => {
     it('stores settings', async () => {
       await setSettings({
-        defaultModel: 'kitten',
-        defaultVoice: 'Bella',
+        defaultModel: 'native',
+        defaultVoice: 'default',
         defaultSpeed: 1.2,
         sanitization: { skipCodeBlocks: false, skipUrls: true, skipEmojis: true, readCodeComments: false, stripMarkdown: true },
         highlight: { color: '#ffeb3b', style: 'background', opacity: 0.4, autoScroll: true },
-        executionProvider: 'cpu'
+        executionProvider: 'wasm'
       });
       const stored = await getSettings();
-      expect(stored.defaultModel).toBe('kitten');
+      expect(stored.defaultModel).toBe('native');
     });
 
     it('updates partial settings', async () => {

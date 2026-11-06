@@ -1,13 +1,12 @@
 /**
  * Voice dropdown component.
- * Handles voice lists for Kokoro-82M, Native OS voices, and legacy models.
+ * Handles voice lists for Kokoro-82M and Native OS voices.
  */
 
-import { VOICES, MODEL_PATHS } from '../../shared/constants.js';
+import { VOICES } from '../../shared/constants.js';
 
 const voiceSelect = document.getElementById('voiceSelect') as HTMLSelectElement;
 
-let piperVoicesLoaded = false;
 let nativeVoicesLoaded = false;
 
 /**
@@ -35,35 +34,10 @@ async function loadNativeVoices(): Promise<void> {
 }
 
 /**
- * Load Piper voices dynamically from the model config.
- */
-async function loadPiperVoices(): Promise<void> {
-  if (piperVoicesLoaded) return;
-  try {
-    const configPath = MODEL_PATHS.piper.config || 'assets/models/piper/en_US-libritts_r-medium.onnx.json';
-    const configUrl = chrome.runtime.getURL(configPath);
-    const res = await fetch(configUrl);
-    if (!res.ok) throw new Error(`HTTP ${res.status} fetching Piper config from ${configUrl}`);
-    const config = await res.json() as { speaker_id_map?: Record<string, number> };
-    const speakers = config.speaker_id_map || {};
-
-    (VOICES as Record<string, Array<{ id: string; label: string }>>).piper = Object.entries(speakers)
-      .sort(([, a], [, b]) => (a as number) - (b as number))
-      .map(([id]) => ({ id, label: `Speaker ${id}` }));
-
-    piperVoicesLoaded = true;
-  } catch (e) {
-    console.error('Failed to load Piper voices:', e);
-    (VOICES as Record<string, Array<{ id: string; label: string }>>).piper = [{ id: '3922', label: 'Speaker 3922 (fallback)' }];
-  }
-}
-
-/**
  * Populate the voice dropdown for a given model.
  */
 export async function populateVoices(model: string, savedVoice?: string): Promise<void> {
   if (model === 'native') await loadNativeVoices();
-  if (model === 'piper') await loadPiperVoices();
 
   const voices = (VOICES as Record<string, Array<{ id: string; label: string }>>)[model] || [];
   if (voiceSelect) {

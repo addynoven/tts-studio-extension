@@ -13,10 +13,10 @@
       --dim:      #3a3a5c;
 
       /* Model accent colours */
-      --kitten:   #fbbf24;
-      --piper:    #22d3ee;
+      --kokoro:   #10b981;
+      --native:   #3b82f6;
 
-      --accent:   var(--piper); /* changes with active model */
+      --accent:   var(--kokoro); /* changes with active model */
       --radius:   8px;
       --font:     'Syne', sans-serif;
       --mono:     'JetBrains Mono', monospace;
@@ -330,7 +330,7 @@
       transition: background 0.3s;
     }
 
-    .status-dot.loading { background: var(--kitten); animation: pulse 1s infinite; }
+    .status-dot.loading { background: #eab308; animation: pulse 1s infinite; }
     .status-dot.generating { background: var(--accent); animation: pulse 0.6s infinite; }
     .status-dot.playing { background: #22c55e; animation: pulse 0.5s infinite; }
     .status-dot.error { background: #ef4444; }
@@ -383,9 +383,8 @@
     }
 
     /* ── Model-specific theming ───────────────────────────── */
-    body[data-model="kitten"] { --accent: var(--kitten); }
-
-    body[data-model="piper"]  { --accent: var(--piper);  }
+    body[data-model="kokoro"] { --accent: var(--kokoro); }
+    body[data-model="native"] { --accent: var(--native); }
 
     /* ── Waveform visualizer ──────────────────────────────── */
     .waveform {

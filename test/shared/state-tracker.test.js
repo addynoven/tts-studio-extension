@@ -19,10 +19,10 @@ const STATE_KEY = 'tts_system_state';
 describe('state-tracker', () => {
   describe('setPhase', () => {
     it('stores phase and detail', async () => {
-      await setPhase('loading', { model: 'piper' });
+      await setPhase('loading', { model: 'kokoro' });
       const state = getStored(STATE_KEY);
       expect(state.phase).toBe('loading');
-      expect(state.phaseDetail).toEqual({ model: 'piper' });
+      expect(state.phaseDetail).toEqual({ model: 'kokoro' });
     });
 
     it('sets startTime on first call', async () => {
@@ -44,7 +44,7 @@ describe('state-tracker', () => {
 
   describe('resetPhase', () => {
     it('clears everything back to defaults', async () => {
-      await setPhase('loading', { model: 'piper' });
+      await setPhase('loading', { model: 'kokoro' });
       await setModuleStatus('offscreen', 'busy');
       await recordError('offscreen', 'boom');
       await resetPhase();

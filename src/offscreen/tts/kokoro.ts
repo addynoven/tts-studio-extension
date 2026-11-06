@@ -6,7 +6,14 @@
 
 import { KokoroTTS } from 'kokoro-js';
 import { env } from '@huggingface/transformers';
-import type { TTSResult } from './kitten.js';
+
+export interface TTSResult {
+  audio: Float32Array;
+  sampleRate: number;
+  playbackRate: number;
+  duration?: number;
+  wordTimings?: WordTiming[];
+}
 
 const MODEL_ID = 'onnx-community/Kokoro-82M-v1.0-ONNX';
 

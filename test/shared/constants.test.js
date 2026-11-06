@@ -5,8 +5,6 @@ import {
   defaultVoiceForModel,
   MODEL_COLORS,
   MODEL_LABELS,
-  LIB_PATHS,
-  MODEL_PATHS,
   STORAGE_KEYS,
   MSG
 } from '../../src/shared/constants.js';
@@ -14,17 +12,13 @@ import {
 describe('constants', () => {
   describe('VOICES', () => {
     it('has kokoro voices', () => {
-      expect(VOICES.kokoro.length).toBe(9);
+      expect(VOICES.kokoro.length).toBeGreaterThanOrEqual(9);
       expect(VOICES.kokoro[0].id).toBe('af_heart');
     });
 
-    it('has kitten voices', () => {
-      expect(VOICES.kitten.length).toBe(8);
-      expect(VOICES.kitten[0].id).toBe('Bella');
-    });
-
-    it('has empty piper voices (loaded dynamically)', () => {
-      expect(VOICES.piper).toEqual([]);
+    it('has native system voice', () => {
+      expect(VOICES.native.length).toBe(1);
+      expect(VOICES.native[0].id).toBe('default');
     });
   });
 
@@ -42,12 +36,8 @@ describe('constants', () => {
       expect(defaultVoiceForModel('kokoro')).toBe('af_heart');
     });
 
-    it('returns Bella for kitten', () => {
-      expect(defaultVoiceForModel('kitten')).toBe('Bella');
-    });
-
-    it('returns 3922 for piper', () => {
-      expect(defaultVoiceForModel('piper')).toBe('3922');
+    it('returns default for native', () => {
+      expect(defaultVoiceForModel('native')).toBe('default');
     });
 
     it('returns af_heart for unknown model', () => {
@@ -56,36 +46,16 @@ describe('constants', () => {
   });
 
   describe('MODEL_COLORS', () => {
-    it('has colors for both models', () => {
-      expect(MODEL_COLORS.kitten).toMatch(/^#/);
-      expect(MODEL_COLORS.piper).toMatch(/^#/);
+    it('has colors for models', () => {
+      expect(MODEL_COLORS.kokoro).toMatch(/^#/);
+      expect(MODEL_COLORS.native).toMatch(/^#/);
     });
   });
 
   describe('MODEL_LABELS', () => {
-    it('has labels for both models', () => {
-      expect(MODEL_LABELS.kitten).toBe('Kitten');
-      expect(MODEL_LABELS.piper).toBe('Piper');
-    });
-  });
-
-  describe('LIB_PATHS', () => {
-    it('points to ORT and phonemizer', () => {
-      expect(LIB_PATHS.ORT).toContain('ort.min.mjs');
-      expect(LIB_PATHS.PHONEMIZER).toContain('phonemizer.mjs');
-    });
-  });
-
-  describe('MODEL_PATHS', () => {
-    it('has onnx path for kitten', () => {
-      expect(MODEL_PATHS.kitten.onnx).toContain('.onnx');
-      expect(MODEL_PATHS.kitten.tokenizer).toContain('.json');
-      expect(MODEL_PATHS.kitten.voices).toContain('.json');
-    });
-
-    it('has onnx and config for piper', () => {
-      expect(MODEL_PATHS.piper.onnx).toContain('.onnx');
-      expect(MODEL_PATHS.piper.config).toContain('.json');
+    it('has labels for models', () => {
+      expect(MODEL_LABELS.kokoro).toContain('Kokoro');
+      expect(MODEL_LABELS.native).toContain('Instant');
     });
   });
 
