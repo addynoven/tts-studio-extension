@@ -32,6 +32,9 @@ export function configureWasmPaths(customPath?: string): void {
     env.backends.onnx.wasm.wasmPaths = wasmDir;
     env.backends.onnx.wasm.proxy = false;
   }
+  if (env.backends?.onnx) {
+    env.backends.onnx.logLevel = 'error';
+  }
   env.allowLocalModels = false;
 }
 
