@@ -4,10 +4,12 @@
  */
 
 import { loadModel, generateAudio, type TTSResult } from './index.js';
+import { configureWasmPaths } from './kokoro.js';
 
 interface WorkerLoadPayload {
   model: string;
   useGPU?: boolean;
+  wasmPaths?: string;
 }
 
 interface WorkerInferPayload {
@@ -30,7 +32,8 @@ self.onmessage = async (e: MessageEvent<{ id: number; type: string; [key: string
 
   if (type === 'load') {
     try {
-      const { model, useGPU } = payload as unknown as WorkerLoadPayload;
+      const { model, useGPU, wasmPaths } = payload as unknown as WorkerLoadPayload;
+      configureWasmPaths(wasmPaths);
       await loadModel(model, null, useGPU !== false);
       self.postMessage({ type: 'loaded', id });
     } catch (err) {

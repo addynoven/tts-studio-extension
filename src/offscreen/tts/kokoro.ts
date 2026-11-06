@@ -5,12 +5,35 @@
  */
 
 import { KokoroTTS } from 'kokoro-js';
+import { env } from '@huggingface/transformers';
 import type { TTSResult } from './kitten.js';
 
 const MODEL_ID = 'onnx-community/Kokoro-82M-v1.0-ONNX';
 
 let kokoroInstance: KokoroTTS | null = null;
 let currentDevice: 'webgpu' | 'wasm' = 'webgpu';
+
+/**
+ * Configure transformers.js to load wasm/jsep runtime locally from the extension bundle.
+ * This satisfies Chrome Extension Manifest V3 CSP ('script-src self wasm-unsafe-eval').
+ */
+export function configureWasmPaths(customPath?: string): void {
+  let wasmDir = customPath;
+  if (!wasmDir) {
+    if (typeof chrome !== 'undefined' && chrome.runtime?.getURL) {
+      wasmDir = chrome.runtime.getURL('transformers/');
+    } else if (typeof self !== 'undefined' && self.location?.origin) {
+      wasmDir = self.location.origin + '/transformers/';
+    } else {
+      wasmDir = 'transformers/';
+    }
+  }
+  if (env.backends?.onnx?.wasm) {
+    env.backends.onnx.wasm.wasmPaths = wasmDir;
+    env.backends.onnx.wasm.proxy = false;
+  }
+  env.allowLocalModels = false;
+}
 
 export interface WordTiming {
   word: string;
@@ -34,6 +57,8 @@ export async function loadKokoro(
   useGPU = true
 ): Promise<void> {
   if (kokoroInstance) return;
+
+  configureWasmPaths();
 
   const targetDevice = useGPU ? 'webgpu' : 'wasm';
 

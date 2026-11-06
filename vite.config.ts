@@ -136,6 +136,33 @@ function copyMathmaps() {
   }
 }
 
+/**
+ * Copy ONNX runtime and Transformers.js wasm/mjs files to dist/transformers/
+ * so the extension loads them locally without violating Manifest V3 CSP.
+ */
+function copyTransformersAssets() {
+  const dest = resolve(__dirname, 'dist/transformers');
+  if (!existsSync(dest)) mkdirSync(dest, { recursive: true });
+
+  const searchDirs = [
+    resolve(__dirname, 'node_modules/@huggingface/transformers/dist'),
+    resolve(__dirname, 'node_modules/@huggingface/transformers/node_modules/onnxruntime-web/dist'),
+    resolve(__dirname, 'node_modules/onnxruntime-web/dist')
+  ];
+
+  for (const src of searchDirs) {
+    if (!existsSync(src)) continue;
+    for (const file of readdirSync(src)) {
+      if (file.endsWith('.wasm') || file.endsWith('.mjs') || (file.endsWith('.js') && file.startsWith('ort-'))) {
+        const destFile = resolve(dest, file);
+        if (!existsSync(destFile)) {
+          copyFileSync(resolve(src, file), destFile);
+        }
+      }
+    }
+  }
+}
+
 export default defineConfig({
   base: './',
   build: {
@@ -176,6 +203,7 @@ export default defineConfig({
         copyManifest();
         copyMathmaps();
         copyLegacyAssets();
+        copyTransformersAssets();
         await bundleContentScriptIIFE();
         console.log('✓ Chrome extension built to dist/');
       },

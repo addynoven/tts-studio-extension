@@ -73,8 +73,11 @@ function postToWorker(type: string, payload: Record<string, unknown>): Promise<T
 }
 
 async function loadViaWorker(model: string, useGPU = false): Promise<void> {
+  const wasmPaths = typeof chrome !== 'undefined' && chrome.runtime?.getURL
+    ? chrome.runtime.getURL('transformers/')
+    : undefined;
   try {
-    await postToWorker('load', { model, useGPU });
+    await postToWorker('load', { model, useGPU, wasmPaths });
   } catch (e) {
     log('offscreen', 'warn', 'Worker load failed, falling back to direct:', (e as Error).message);
     await loadModel(model, null, useGPU);
