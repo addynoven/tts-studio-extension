@@ -3,6 +3,15 @@
  * The engine room for WASM inference and Web Audio API playback.
  */
 
+// Filter out benign third-party library warnings to keep Chrome's extension manager error tab pristine
+const _origConsoleWarn = console.warn;
+console.warn = (...args: unknown[]) => {
+  if (args.some(a => typeof a === 'string' && a.includes('Unable to determine content-length'))) {
+    return;
+  }
+  _origConsoleWarn.apply(console, args);
+};
+
 import { MSG } from '../shared/constants.js';
 import {
   enqueueChunk,

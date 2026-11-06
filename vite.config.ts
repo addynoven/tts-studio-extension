@@ -156,7 +156,16 @@ function copyTransformersAssets() {
       if (file.endsWith('.wasm') || file.endsWith('.mjs') || (file.endsWith('.js') && file.startsWith('ort-'))) {
         const destFile = resolve(dest, file);
         if (!existsSync(destFile)) {
-          copyFileSync(resolve(src, file), destFile);
+          if (file === 'ort-wasm-simd-threaded.jsep.mjs') {
+            let content = readFileSync(resolve(src, file), 'utf-8');
+            content = content.replace(
+              'var ta=ra,x=sa;',
+              'var ta=ra,x=(...args)=>{if(args.some(a=>typeof a==="string"&&a.includes("VerifyEachNodeIsAssignedToAnEp")))return;sa(...args);};'
+            );
+            writeFileSync(destFile, content);
+          } else {
+            copyFileSync(resolve(src, file), destFile);
+          }
         }
       }
     }

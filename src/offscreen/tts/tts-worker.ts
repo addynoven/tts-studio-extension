@@ -3,6 +3,14 @@
  * Isolates heavy WASM/WebGPU compute from Chrome's extension message loop.
  */
 
+const _origWorkerWarn = console.warn;
+console.warn = (...args: unknown[]) => {
+  if (args.some(a => typeof a === 'string' && a.includes('Unable to determine content-length'))) {
+    return;
+  }
+  _origWorkerWarn.apply(console, args);
+};
+
 import { loadModel, generateAudio, type TTSResult } from './index.js';
 import { configureWasmPaths } from './kokoro.js';
 
