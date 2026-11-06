@@ -162,7 +162,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     log('bg', 'log', 'Native TTS generate requested');
     stopNative();
     speakNative(String(message.text || ''), {
-      voice: typeof message.voice === 'string' ? message.voice : undefined,
+      voice: typeof message.voice === 'string' && message.voice !== 'default' ? message.voice : undefined,
       speed: Number(message.speed ?? 1.0),
       onStart: () => {
         chrome.runtime.sendMessage({ target: 'popup', type: MSG.STATUS_PLAYING, _forwarded: true }).catch(() => {});

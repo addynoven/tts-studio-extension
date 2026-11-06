@@ -52,16 +52,26 @@ async function handleMenuClick(info: chrome.contextMenus.OnClickData): Promise<v
       if (tab?.id) {
         await ensureContentScript(tab.id);
       }
-      await ensureOffscreen();
-      chrome.runtime.sendMessage({
-        target: 'offscreen',
-        type: MSG.TTS_GENERATE,
-        text: info.selectionText.trim(),
-        model,
-        voice,
-        speed: Number(speed),
-        useGPU
-      }).catch((e: Error) => console.error('[TTS Studio] TTS_GENERATE failed:', e.message));
+      if (model === 'native') {
+        chrome.runtime.sendMessage({
+          type: MSG.TTS_GENERATE,
+          text: info.selectionText.trim(),
+          model: 'native',
+          voice,
+          speed: Number(speed)
+        }).catch((e: Error) => console.error('[TTS Studio] TTS_GENERATE failed:', e.message));
+      } else {
+        await ensureOffscreen();
+        chrome.runtime.sendMessage({
+          target: 'offscreen',
+          type: MSG.TTS_GENERATE,
+          text: info.selectionText.trim(),
+          model,
+          voice,
+          speed: Number(speed),
+          useGPU
+        }).catch((e: Error) => console.error('[TTS Studio] TTS_GENERATE failed:', e.message));
+      }
       break;
     }
 

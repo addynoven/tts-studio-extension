@@ -183,7 +183,6 @@ async function generate(): Promise<void> {
   }, GENERATION_TIMEOUT_MS);
 
   chrome.runtime.sendMessage({
-    target: 'offscreen',
     type: MSG.TTS_GENERATE,
     text,
     model: getActiveModel(),
@@ -198,20 +197,20 @@ async function generate(): Promise<void> {
 
 function pause(): void {
   if (uiState !== 'loading' && uiState !== 'playing') return;
-  chrome.runtime.sendMessage({ target: 'offscreen', type: MSG.TTS_PAUSE }).catch(() => {});
+  chrome.runtime.sendMessage({ type: MSG.TTS_TOGGLE_PLAYBACK }).catch(() => {});
   setUIState('paused');
   setStatus('paused', 'Paused');
 }
 
 function resume(): void {
   if (uiState !== 'paused') return;
-  chrome.runtime.sendMessage({ target: 'offscreen', type: MSG.TTS_RESUME }).catch(() => {});
+  chrome.runtime.sendMessage({ type: MSG.TTS_TOGGLE_PLAYBACK }).catch(() => {});
   setUIState('playing');
   setStatus('playing', 'Playing…');
 }
 
 function stop(): void {
-  chrome.runtime.sendMessage({ target: 'offscreen', type: MSG.TTS_STOP }).catch(() => {});
+  chrome.runtime.sendMessage({ type: MSG.TTS_STOP }).catch(() => {});
   chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
     if (tab?.id) {
       chrome.tabs.sendMessage(tab.id, { type: MSG.CLEAR_HIGHLIGHTS }).catch(() => {});
