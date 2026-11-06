@@ -9,6 +9,9 @@ let miniPlayerEl: HTMLElement | null = null;
 let currentSpeed = 1.0;
 let isPlayingState = false;
 
+let mouseupHandler: ((e: MouseEvent) => void) | null = null;
+let mousedownHandler: ((e: MouseEvent) => void) | null = null;
+
 export interface InPageUICallbacks {
   onReadSelection: (text: string) => void;
   onTogglePlay: () => void;
@@ -22,7 +25,54 @@ let callbacks: InPageUICallbacks | null = null;
 
 const SPEEDS = [0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
 
+/**
+ * Safely check if the extension runtime is still connected.
+ */
+export function isContextAlive(): boolean {
+  try {
+    return Boolean(typeof chrome !== 'undefined' && chrome.runtime && (chrome.runtime.id || chrome.runtime.sendMessage));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Display a gentle toast if the user clicks UI on an orphaned page after extension reload.
+ */
+export function showReloadToast(): void {
+  removeSelectionButton();
+  hideMiniPlayer();
+  if (document.getElementById('tts-studio-reload-toast')) return;
+
+  const toast = document.createElement('div');
+  toast.id = 'tts-studio-reload-toast';
+  toast.className = 'tts-studio-reload-toast';
+  toast.innerHTML = `<span>⚠️</span><span>TTS Studio was updated. Please refresh the page to read.</span>`;
+  document.body.appendChild(toast);
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    setTimeout(() => toast.remove(), 400);
+  }, 4500);
+}
+
+/**
+ * Teardown in-page UI and event listeners (used on context invalidation or re-injection).
+ */
+export function teardownInPageUI(): void {
+  removeSelectionButton();
+  hideMiniPlayer();
+  if (mouseupHandler) {
+    document.removeEventListener('mouseup', mouseupHandler);
+    mouseupHandler = null;
+  }
+  if (mousedownHandler) {
+    document.removeEventListener('mousedown', mousedownHandler);
+    mousedownHandler = null;
+  }
+}
+
 export function initInPageUI(cb: InPageUICallbacks): void {
+  teardownInPageUI();
   callbacks = cb;
   injectStyles();
   setupSelectionListener();
@@ -121,6 +171,28 @@ function injectStyles(): void {
       cursor: pointer;
     }
 
+    .tts-studio-reload-toast {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 2147483647;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 18px;
+      background: #0f172a;
+      color: #f8fafc;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 13px;
+      font-weight: 500;
+      border-radius: 9999px;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.15);
+      animation: tts-slide-up 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      transition: opacity 0.3s ease;
+      user-select: none;
+    }
+
     @keyframes tts-pop-in {
       from { opacity: 0; transform: scale(0.85); }
       to { opacity: 1; transform: scale(1); }
@@ -134,7 +206,13 @@ function injectStyles(): void {
 }
 
 function setupSelectionListener(): void {
-  document.addEventListener('mouseup', (e) => {
+  mouseupHandler = (e: MouseEvent) => {
+    // If runtime context has become invalid, tear down and stop listening
+    if (!isContextAlive()) {
+      teardownInPageUI();
+      return;
+    }
+
     // Ignore clicks inside mini-player or float button
     if (
       (selectionBtn && selectionBtn.contains(e.target as Node)) ||
@@ -173,13 +251,16 @@ function setupSelectionListener(): void {
 
       showSelectionButton(rect, text);
     }, 10);
-  });
+  };
 
-  document.addEventListener('mousedown', (e) => {
+  mousedownHandler = (e: MouseEvent) => {
     if (selectionBtn && !selectionBtn.contains(e.target as Node)) {
       removeSelectionButton();
     }
-  });
+  };
+
+  document.addEventListener('mouseup', mouseupHandler);
+  document.addEventListener('mousedown', mousedownHandler);
 }
 
 function showSelectionButton(rect: DOMRect, text: string): void {
@@ -199,8 +280,20 @@ function showSelectionButton(rect: DOMRect, text: string): void {
     e.stopPropagation();
     e.preventDefault();
     removeSelectionButton();
+    if (!isContextAlive()) {
+      teardownInPageUI();
+      showReloadToast();
+      return;
+    }
     showMiniPlayer();
-    callbacks?.onReadSelection(text);
+    try {
+      callbacks?.onReadSelection(text);
+    } catch (err) {
+      if ((err as Error)?.message?.includes('Extension context invalidated')) {
+        teardownInPageUI();
+        showReloadToast();
+      }
+    }
   });
 
   document.body.appendChild(selectionBtn);
@@ -241,6 +334,22 @@ export function hideMiniPlayer(): void {
   }
 }
 
+function safeExecute(action: () => void): void {
+  if (!isContextAlive()) {
+    teardownInPageUI();
+    showReloadToast();
+    return;
+  }
+  try {
+    action();
+  } catch (err) {
+    if ((err as Error)?.message?.includes('Extension context invalidated')) {
+      teardownInPageUI();
+      showReloadToast();
+    }
+  }
+}
+
 function renderMiniPlayerContent(): void {
   if (!miniPlayerEl) return;
 
@@ -255,16 +364,16 @@ function renderMiniPlayerContent(): void {
   `;
 
   miniPlayerEl.querySelector('.tts-play-btn')?.addEventListener('click', () => {
-    callbacks?.onTogglePlay();
+    safeExecute(() => callbacks?.onTogglePlay());
   });
   miniPlayerEl.querySelector('.tts-prev-btn')?.addEventListener('click', () => {
-    callbacks?.onSkipBackward();
+    safeExecute(() => callbacks?.onSkipBackward());
   });
   miniPlayerEl.querySelector('.tts-next-btn')?.addEventListener('click', () => {
-    callbacks?.onSkipForward();
+    safeExecute(() => callbacks?.onSkipForward());
   });
   miniPlayerEl.querySelector('.tts-close-btn')?.addEventListener('click', () => {
-    callbacks?.onStop();
+    safeExecute(() => callbacks?.onStop());
     hideMiniPlayer();
   });
 
@@ -273,7 +382,7 @@ function renderMiniPlayerContent(): void {
     const curIdx = SPEEDS.indexOf(currentSpeed);
     const nextIdx = (curIdx + 1) % SPEEDS.length;
     currentSpeed = SPEEDS[nextIdx];
-    callbacks?.onSpeedChange(currentSpeed);
+    safeExecute(() => callbacks?.onSpeedChange(currentSpeed));
     renderMiniPlayerContent();
   });
 }

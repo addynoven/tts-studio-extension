@@ -116,6 +116,7 @@ function createTabsSendMessageMock() {
   },
 
   runtime: {
+    id: 'test-extension-id',
     getURL: vi.fn((path: string) => `chrome-extension://test-id/${path}`),
     sendMessage: vi.fn(async () => {}),
     onMessage: {

@@ -7,41 +7,93 @@ import { MSG } from '../shared/constants.js';
 import { extractSelection } from './extractor/index.js';
 import { extractMappedArticle, BlockIterator, type ExtractedBlock } from './extractor/dom-mapper.js';
 import { highlightSentence, highlightElement, highlightWord, clearAll, setMappedBlocks } from './highlighter.js';
-import { initInPageUI, showMiniPlayer, updateMiniPlayerState, hideMiniPlayer } from './in-page-ui.js';
+import { initInPageUI, showMiniPlayer, updateMiniPlayerState, hideMiniPlayer, showReloadToast, teardownInPageUI } from './in-page-ui.js';
 import { getSettings, updateSettings } from '../shared/storage.js';
+import { isExtensionValid } from '../shared/messaging.js';
 import { log } from '../shared/logger.js';
 
 log('content', 'log', 'Content script loaded on', location.hostname);
 
+declare global {
+  interface Window {
+    __ttsStudioListener?: (
+      message: ContentMessage,
+      sender: chrome.runtime.MessageSender,
+      sendResponse: (res?: unknown) => void
+    ) => boolean | undefined;
+    __ttsStudioTeardownInPageUI?: () => void;
+  }
+}
+
+// Clean up any previous in-page UI from prior injections
+if (typeof window.__ttsStudioTeardownInPageUI === 'function') {
+  try {
+    window.__ttsStudioTeardownInPageUI();
+  } catch {}
+}
+window.__ttsStudioTeardownInPageUI = teardownInPageUI;
+
+function safeSendBackground(type: string, payload: Record<string, unknown> = {}): void {
+  if (!isExtensionValid()) {
+    showReloadToast();
+    teardownInPageUI();
+    return;
+  }
+  try {
+    chrome.runtime.sendMessage({ target: 'background', type, ...payload }).catch((err: Error) => {
+      if (err?.message?.includes('Extension context invalidated')) {
+        showReloadToast();
+        teardownInPageUI();
+      }
+    });
+  } catch (err) {
+    if ((err as Error)?.message?.includes('Extension context invalidated')) {
+      showReloadToast();
+      teardownInPageUI();
+    }
+  }
+}
+
 // Initialize in-page floating quick-play button and bottom pill player
 initInPageUI({
   onReadSelection: async (text: string) => {
-    const settings = await getSettings();
-    chrome.runtime.sendMessage({
-      target: 'background',
-      type: MSG.TTS_GENERATE,
-      text,
-      model: settings.defaultModel,
-      voice: settings.defaultVoice,
-      speed: settings.defaultSpeed,
-      useGPU: settings.executionProvider === 'webgpu'
-    }).catch(() => {});
+    if (!isExtensionValid()) {
+      showReloadToast();
+      teardownInPageUI();
+      return;
+    }
+    try {
+      const settings = await getSettings();
+      safeSendBackground(MSG.TTS_GENERATE, {
+        text,
+        model: settings.defaultModel,
+        voice: settings.defaultVoice,
+        speed: settings.defaultSpeed,
+        useGPU: settings.executionProvider === 'webgpu'
+      });
+    } catch (err) {
+      if ((err as Error)?.message?.includes('Extension context invalidated')) {
+        showReloadToast();
+        teardownInPageUI();
+      }
+    }
   },
   onTogglePlay: () => {
-    chrome.runtime.sendMessage({ target: 'background', type: MSG.TTS_TOGGLE_PLAYBACK }).catch(() => {});
+    safeSendBackground(MSG.TTS_TOGGLE_PLAYBACK);
   },
   onStop: () => {
-    chrome.runtime.sendMessage({ target: 'background', type: MSG.TTS_STOP }).catch(() => {});
+    safeSendBackground(MSG.TTS_STOP);
     clearAll();
   },
   onSkipForward: () => {
-    chrome.runtime.sendMessage({ target: 'background', type: MSG.TTS_SKIP_FORWARD }).catch(() => {});
+    safeSendBackground(MSG.TTS_SKIP_FORWARD);
   },
   onSkipBackward: () => {
-    chrome.runtime.sendMessage({ target: 'background', type: MSG.TTS_SKIP_BACKWARD }).catch(() => {});
+    safeSendBackground(MSG.TTS_SKIP_BACKWARD);
   },
   onSpeedChange: (speed: number) => {
-    void updateSettings({ defaultSpeed: speed });
+    if (!isExtensionValid()) return;
+    updateSettings({ defaultSpeed: speed }).catch(() => {});
   }
 });
 
@@ -178,9 +230,7 @@ function handleExtractArticle(sendResponse: (res: unknown) => void): void {
 
   const blockTexts = blocks.map(b => b.ttsText);
 
-  chrome.runtime.sendMessage({
-    target: 'background',
-    type: MSG.ARTICLE_EXTRACTED,
+  safeSendBackground(MSG.ARTICLE_EXTRACTED, {
     article: {
       title,
       text: fullText,
@@ -188,8 +238,6 @@ function handleExtractArticle(sendResponse: (res: unknown) => void): void {
       length: fullText.length,
       url: location.href
     }
-  }).catch((e: Error) => {
-    log('content', 'error', 'Failed to send ARTICLE_EXTRACTED:', e.message);
   });
 
   sendResponse({ title, text: fullText, length: fullText.length });
@@ -240,16 +288,12 @@ function handleRequestBlock(message: ContentMessage, sendResponse: (res: unknown
 }
 
 function sendBlockReady(block: ExtractedBlock, isLast: boolean): void {
-  chrome.runtime.sendMessage({
-    target: 'background',
-    type: MSG.BLOCK_READY,
+  safeSendBackground(MSG.BLOCK_READY, {
     block: {
       index: block.index,
       text: block.ttsText,
       isLastBlock: isLast
     }
-  }).catch((e: Error) => {
-    log('content', 'error', 'Failed to send BLOCK_READY:', e.message);
   });
 }
 

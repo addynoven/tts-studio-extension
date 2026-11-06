@@ -25,6 +25,26 @@ initContextMenus();
 initCommands();
 initStateSync();
 
+// Auto-inject content scripts into existing tabs upon reload or install
+chrome.runtime.onInstalled.addListener(async (details) => {
+  log('bg', 'log', 'Extension installed or reloaded:', details.reason);
+  try {
+    const tabs = await chrome.tabs.query({ url: ['http://*/*', 'https://*/*'] });
+    for (const tab of tabs) {
+      if (tab.id) {
+        chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: ['content.js']
+        }).catch(() => {
+          // Tab may not allow scripting (e.g. restricted or discarded)
+        });
+      }
+    }
+  } catch (err) {
+    log('bg', 'warn', 'Failed to auto-inject content scripts on install:', (err as Error).message);
+  }
+});
+
 // Close any stale offscreen document from a previous extension session
 closeOffscreen().catch(() => {});
 

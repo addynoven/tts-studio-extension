@@ -18,6 +18,17 @@ export type MessageHandler = (
 ) => unknown;
 
 /**
+ * Check if extension runtime context is valid.
+ */
+export function isExtensionValid(): boolean {
+  try {
+    return Boolean(typeof chrome !== 'undefined' && chrome.runtime && (chrome.runtime.id || chrome.runtime.sendMessage));
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Send a message to a specific target.
  */
 export function sendTo(

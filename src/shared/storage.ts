@@ -70,37 +70,51 @@ const DEFAULT_SETTINGS: Settings = {
 // ── Settings ───────────────────────────────────────────────────────────────
 
 export async function getSettings(): Promise<Settings> {
-  const result = await chrome.storage.local.get(['settings', 'model', 'voice', 'speed', 'gpu', 'text']);
-  const storedSettings = (result.settings as Partial<Settings> | undefined) || {};
+  if (typeof chrome === 'undefined' || !chrome.storage?.local) {
+    return DEFAULT_SETTINGS;
+  }
+  try {
+    const result = await chrome.storage.local.get(['settings', 'model', 'voice', 'speed', 'gpu', 'text']);
+    const storedSettings = (result.settings as Partial<Settings> | undefined) || {};
 
-  // Compatibility fallback for legacy top-level keys if settings wasn't saved yet
-  const defaultModel = storedSettings.defaultModel || (typeof result.model === 'string' ? result.model : DEFAULT_SETTINGS.defaultModel);
-  const defaultVoice = storedSettings.defaultVoice || (typeof result.voice === 'string' ? result.voice : DEFAULT_SETTINGS.defaultVoice);
-  const defaultSpeed = storedSettings.defaultSpeed ?? (typeof result.speed === 'number' ? result.speed : DEFAULT_SETTINGS.defaultSpeed);
-  const executionProvider = storedSettings.executionProvider || (result.gpu === false ? 'wasm' : 'webgpu');
-  const lastInputText = storedSettings.lastInputText ?? (typeof result.text === 'string' ? result.text : '');
+    // Compatibility fallback for legacy top-level keys if settings wasn't saved yet
+    const defaultModel = storedSettings.defaultModel || (typeof result.model === 'string' ? result.model : DEFAULT_SETTINGS.defaultModel);
+    const defaultVoice = storedSettings.defaultVoice || (typeof result.voice === 'string' ? result.voice : DEFAULT_SETTINGS.defaultVoice);
+    const defaultSpeed = storedSettings.defaultSpeed ?? (typeof result.speed === 'number' ? result.speed : DEFAULT_SETTINGS.defaultSpeed);
+    const executionProvider = storedSettings.executionProvider || (result.gpu === false ? 'wasm' : 'webgpu');
+    const lastInputText = storedSettings.lastInputText ?? (typeof result.text === 'string' ? result.text : '');
 
-  return {
-    ...DEFAULT_SETTINGS,
-    ...storedSettings,
-    defaultModel,
-    defaultVoice,
-    defaultSpeed,
-    executionProvider,
-    lastInputText
-  };
+    return {
+      ...DEFAULT_SETTINGS,
+      ...storedSettings,
+      defaultModel,
+      defaultVoice,
+      defaultSpeed,
+      executionProvider,
+      lastInputText
+    };
+  } catch {
+    return DEFAULT_SETTINGS;
+  }
 }
 
 export async function setSettings(settings: Settings): Promise<void> {
-  await chrome.storage.local.set({
-    settings,
-    // Keep top-level keys in sync for backward compatibility
-    model: settings.defaultModel,
-    voice: settings.defaultVoice,
-    speed: settings.defaultSpeed,
-    gpu: settings.executionProvider === 'webgpu',
-    text: settings.lastInputText
-  });
+  if (typeof chrome === 'undefined' || !chrome.storage?.local) {
+    return;
+  }
+  try {
+    await chrome.storage.local.set({
+      settings,
+      // Keep top-level keys in sync for backward compatibility
+      model: settings.defaultModel,
+      voice: settings.defaultVoice,
+      speed: settings.defaultSpeed,
+      gpu: settings.executionProvider === 'webgpu',
+      text: settings.lastInputText
+    });
+  } catch {
+    // Gracefully ignore storage write failures if context invalidated
+  }
 }
 
 export async function updateSettings(partial: Partial<Settings>): Promise<void> {
