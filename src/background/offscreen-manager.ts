@@ -84,6 +84,7 @@ export function sendToOffscreen(message: Record<string, unknown>): void {
   ensureOffscreen().then(() => {
     setModuleStatus('offscreen', 'active');
     if (offscreenReady) {
+      log('bg', 'log', 'sendToOffscreen sending:', message.type);
       chrome.runtime.sendMessage({ ...message, _forwarded: true }).catch((e: Error) => {
         log('bg', 'error', 'Failed to send to offscreen:', e.message);
         recordError('bg', e.message);

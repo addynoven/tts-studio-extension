@@ -3,7 +3,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // Mock modules BEFORE any imports
 vi.mock('../../src/background/offscreen-manager.js', () => ({
   ensureOffscreen: vi.fn(async () => {}),
-  closeOffscreen: vi.fn(async () => {})
+  closeOffscreen: vi.fn(async () => {}),
+  setOffscreenReady: vi.fn(),
+  sendToOffscreen: vi.fn((msg) => { chrome.runtime.sendMessage({ ...msg, _forwarded: true }); })
 }));
 
 vi.mock('../../src/background/context-menus.js', () => ({

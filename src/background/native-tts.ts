@@ -83,8 +83,17 @@ function speakNextSentence(): void {
   const sentence = currentSentences[currentSentenceIndex];
   const sentenceIdx = currentSentenceIndex;
   const rate = Math.max(0.5, Math.min(2.0, currentOptions?.speed ?? 1.0));
-  const voiceName = currentOptions?.voice && currentOptions.voice !== 'default'
-    ? currentOptions.voice
+  const reqVoice = currentOptions?.voice;
+  // Guard against neural voice ids like 'af_heart' being passed to native OS TTS
+  const isNeuralVoiceId = reqVoice && (
+    reqVoice.startsWith('af_') ||
+    reqVoice.startsWith('am_') ||
+    reqVoice.startsWith('bf_') ||
+    reqVoice.startsWith('bm_') ||
+    reqVoice === 'default'
+  );
+  const voiceName = (!isNeuralVoiceId && reqVoice && reqVoice !== 'default')
+    ? reqVoice
     : undefined;
 
   chrome.tts.speak(sentence, {
@@ -104,6 +113,7 @@ function speakNextSentence(): void {
         speakNextSentence();
       } else if (event.type === 'error') {
         isSpeaking = false;
+        console.error('[TTS Studio Native] Speech error:', event.errorMessage);
         currentOptions?.onError?.(event.errorMessage || 'Native TTS error');
       }
     }

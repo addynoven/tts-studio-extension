@@ -128,29 +128,44 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return false;
   }
 
-  // ── Native TTS Routing ──
-  if (message.type === MSG.TTS_GENERATE && message.model === 'native') {
-    log('bg', 'log', 'Native TTS generate requested');
-    stopNative();
-    speakNative(String(message.text || ''), {
-      voice: typeof message.voice === 'string' && message.voice !== 'default' ? message.voice : undefined,
-      speed: Number(message.speed ?? 1.0),
-      onStart: () => {
-        chrome.runtime.sendMessage({ target: 'popup', type: MSG.STATUS_PLAYING, _forwarded: true }).catch(() => {});
-        forwardToContent({ type: MSG.STATUS_PLAYING });
-      },
-      onWord: (charIndex, charLength) => {
-        forwardToContent({ type: MSG.HIGHLIGHT_WORD, charIndex, charLength });
-      },
-      onEnd: () => {
-        chrome.runtime.sendMessage({ target: 'popup', type: MSG.STATUS_DONE, _forwarded: true }).catch(() => {});
-        forwardToContent({ type: MSG.STATUS_DONE });
-      },
-      onError: (err) => {
-        chrome.runtime.sendMessage({ target: 'popup', type: MSG.STATUS_ERROR, error: err, _forwarded: true }).catch(() => {});
-      }
-    });
-    return false;
+  // ── TTS Generation Routing ──
+  if (message.type === MSG.TTS_GENERATE) {
+    if (message.model === 'native') {
+      log('bg', 'log', 'Native TTS generate requested');
+      stopNative();
+      speakNative(String(message.text || ''), {
+        voice: typeof message.voice === 'string' && message.voice !== 'default' ? message.voice : undefined,
+        speed: Number(message.speed ?? 1.0),
+        onStart: () => {
+          chrome.runtime.sendMessage({ target: 'popup', type: MSG.STATUS_PLAYING, _forwarded: true }).catch(() => {});
+          forwardToContent({ type: MSG.STATUS_PLAYING });
+        },
+        onWord: (charIndex, charLength) => {
+          forwardToContent({ type: MSG.HIGHLIGHT_WORD, charIndex, charLength });
+        },
+        onEnd: () => {
+          chrome.runtime.sendMessage({ target: 'popup', type: MSG.STATUS_DONE, _forwarded: true }).catch(() => {});
+          forwardToContent({ type: MSG.STATUS_DONE });
+        },
+        onError: (err) => {
+          log('bg', 'error', 'Native TTS speech error:', err);
+          chrome.runtime.sendMessage({ target: 'popup', type: MSG.STATUS_ERROR, error: err, _forwarded: true }).catch(() => {});
+        }
+      });
+      return false;
+    } else {
+      log('bg', 'log', 'Kokoro neural TTS generate requested, routing to offscreen');
+      sendToOffscreen({
+        target: 'offscreen',
+        type: MSG.TTS_GENERATE,
+        text: message.text,
+        model: 'kokoro',
+        voice: message.voice || 'af_heart',
+        speed: Number(message.speed ?? 1.0),
+        useGPU: message.useGPU !== false
+      });
+      return false;
+    }
   }
 
   if (message.type === MSG.TTS_STOP) {

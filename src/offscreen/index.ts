@@ -245,6 +245,7 @@ setPlaybackCompleteCallback(() => {
 
 chrome.runtime.onMessage.addListener((message) => {
   if (message.target !== 'offscreen') return;
+  log('offscreen', 'log', 'Offscreen received target message:', message.type);
 
   if (message.type === MSG.TTS_PREWARM) {
     log('offscreen', 'log', 'Pre-warming Kokoro neural engine in background...');
