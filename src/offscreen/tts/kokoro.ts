@@ -37,8 +37,54 @@ export function configureWasmPaths(customPath?: string): void {
   }
   if (env.backends?.onnx) {
     env.backends.onnx.logLevel = 'error';
+    if (env.backends.onnx.webgpu) {
+      Object.assign(env.backends.onnx.webgpu, { powerPreference: 'high-performance' });
+    }
   }
+  (env as unknown as { webgpu: { powerPreference: string } }).webgpu = {
+    powerPreference: 'high-performance'
+  };
   env.allowLocalModels = false;
+}
+
+let activeTensorsToDispose: Array<{ dispose?: () => void }> = [];
+
+/**
+ * Intercepts Kokoro's underlying ONNX model execution to capture input and output tensors
+ * so they can be explicitly disposed immediately after audio extraction.
+ * This prevents WebGPU buffer leakage and Vulkan VK_ERROR_OUT_OF_DEVICE_MEMORY.
+ */
+function hookKokoroModel(instance: KokoroTTS): void {
+  const model = (instance as unknown as {
+    model?: {
+      _call?: (inputs: Record<string, unknown>) => Promise<Record<string, unknown>>;
+      _isDisposalHooked?: boolean;
+    };
+  }).model;
+
+  if (!model || typeof model._call !== 'function' || model._isDisposalHooked) return;
+
+  const origCall = model._call;
+  model._call = async function (modelInputs: Record<string, unknown>) {
+    if (modelInputs && typeof modelInputs === 'object') {
+      for (const val of Object.values(modelInputs)) {
+        if (val && typeof (val as { dispose?: () => void }).dispose === 'function') {
+          activeTensorsToDispose.push(val as { dispose?: () => void });
+        }
+      }
+    }
+    const output = await origCall.apply(this, [modelInputs]);
+    if (output && typeof output === 'object') {
+      for (const val of Object.values(output)) {
+        if (val && typeof (val as { dispose?: () => void }).dispose === 'function') {
+          activeTensorsToDispose.push(val as { dispose?: () => void });
+        }
+      }
+    }
+    return output;
+  };
+
+  model._isDisposalHooked = true;
 }
 
 export interface WordTiming {
@@ -82,6 +128,7 @@ export async function loadKokoro(
         }
       }
     });
+    hookKokoroModel(kokoroInstance);
     currentDevice = targetDevice;
   } catch (err) {
     if (targetDevice === 'webgpu') {
@@ -95,6 +142,7 @@ export async function loadKokoro(
           }
         }
       });
+      hookKokoroModel(kokoroInstance);
       currentDevice = 'wasm';
     } else {
       throw err;
@@ -118,25 +166,56 @@ export async function generateKokoro(
     throw new Error('Failed to initialize KokoroTTS');
   }
 
-  const rawAudio = await kokoroInstance.generate(text, {
-    voice: voice as unknown as Parameters<typeof kokoroInstance.generate>[1] extends { voice?: infer V } ? V : never,
-    speed
-  });
+  activeTensorsToDispose = [];
 
-  const sampleRate = rawAudio.sampling_rate || 24000;
-  const audioData = rawAudio.audio;
-  const duration = audioData.length / sampleRate;
+  try {
+    const rawAudio = await kokoroInstance.generate(text, {
+      voice: voice as unknown as Parameters<typeof kokoroInstance.generate>[1] extends { voice?: infer V } ? V : never,
+      speed
+    });
 
-  // Compute character/syllable-weighted word boundary timings
-  const wordTimings = computeWordTimings(text, duration);
+    const sampleRate = rawAudio.sampling_rate || 24000;
+    // Detach and clone audio data into a new Float32Array in CPU memory before GPU tensor disposal
+    const audioData = new Float32Array(rawAudio.audio);
+    const duration = audioData.length / sampleRate;
 
-  return {
-    audio: audioData,
-    sampleRate,
-    playbackRate: 1.0, // Kokoro already applied speed internally to the waveform
-    duration,
-    wordTimings
-  };
+    // Compute character/syllable-weighted word boundary timings
+    const wordTimings = computeWordTimings(text, duration);
+
+    return {
+      audio: audioData,
+      sampleRate,
+      playbackRate: 1.0, // Kokoro already applied speed internally to the waveform
+      duration,
+      wordTimings
+    };
+  } catch (err) {
+    const errMsg = (err as Error)?.message || String(err);
+    // Self-healing fallback: If WebGPU VRAM exhausts or encounters an invalid buffer error mid-generation,
+    // immediately recover onto CPU WASM using system RAM without halting playback.
+    if (currentDevice === 'webgpu' && (
+      errMsg.includes('OUT_OF_DEVICE_MEMORY') ||
+      errMsg.includes('Invalid Buffer') ||
+      errMsg.includes('WebGPU') ||
+      errMsg.includes('device lost')
+    )) {
+      console.warn('[KokoroTTS] WebGPU memory error encountered. Automatically recovering on WASM q8:', errMsg);
+      releaseKokoro();
+      await loadKokoro(null, false);
+      return await generateKokoro(text, voice, speed);
+    }
+    throw err;
+  } finally {
+    // Explicitly dispose all WebGPU tensors (input_ids, style, speed, waveform) to prevent VRAM accumulation
+    for (const tensor of activeTensorsToDispose) {
+      try {
+        tensor.dispose?.();
+      } catch {
+        // Silently ignore if already disposed
+      }
+    }
+    activeTensorsToDispose = [];
+  }
 }
 
 /**
@@ -186,6 +265,14 @@ function computeWordTimings(text: string, totalDuration: number): WordTiming[] {
  * Release Kokoro resources if needed.
  */
 export function releaseKokoro(): void {
+  if (kokoroInstance) {
+    try {
+      const model = (kokoroInstance as unknown as { model?: { dispose?: () => Promise<void> } }).model;
+      if (model && typeof model.dispose === 'function') {
+        void model.dispose();
+      }
+    } catch {}
+  }
   kokoroInstance = null;
 }
 

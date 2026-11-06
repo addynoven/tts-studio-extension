@@ -62,19 +62,35 @@ export async function generateKitten(text: string, voice = 'Bella', speed = 1.0)
   const speakerEmbedding = new Float32Array(voiceEmbedding[0]);
   const inputIds = new BigInt64Array(tokens.map(id => BigInt(id)));
 
-  const result = await kittenSession!.run({
-    'input_ids': new ort.Tensor('int64', inputIds, [1, inputIds.length]),
-    'style': new ort.Tensor('float32', speakerEmbedding, [1, speakerEmbedding.length]),
-    'speed': new ort.Tensor('float32', new Float32Array([speed]), [1])
-  });
+  const tInput = new ort.Tensor('int64', inputIds, [1, inputIds.length]);
+  const tStyle = new ort.Tensor('float32', speakerEmbedding, [1, speakerEmbedding.length]);
+  const tSpeed = new ort.Tensor('float32', new Float32Array([speed]), [1]);
 
-  const rawAudio = result.waveform?.data ?? result[Object.keys(result)[0]]?.data;
-  if (!rawAudio) throw new Error('No audio output from KittenTTS model');
+  let result: Record<string, { data: Float32Array | BigInt64Array | number[]; dispose?: () => void }> | null = null;
+  try {
+    result = await kittenSession!.run({
+      'input_ids': tInput,
+      'style': tStyle,
+      'speed': tSpeed
+    });
 
-  const audio = rawAudio instanceof Float32Array ? rawAudio : new Float32Array(rawAudio as number[]);
-  return {
-    audio,
-    sampleRate: KITTEN_SAMPLE_RATE,
-    playbackRate: speed
-  };
+    const rawAudio = result.waveform?.data ?? result[Object.keys(result)[0]]?.data;
+    if (!rawAudio) throw new Error('No audio output from KittenTTS model');
+
+    const audio = rawAudio instanceof Float32Array ? new Float32Array(rawAudio) : new Float32Array(rawAudio as number[]);
+    return {
+      audio,
+      sampleRate: KITTEN_SAMPLE_RATE,
+      playbackRate: speed
+    };
+  } finally {
+    try { (tInput as { dispose?: () => void }).dispose?.(); } catch {}
+    try { (tStyle as { dispose?: () => void }).dispose?.(); } catch {}
+    try { (tSpeed as { dispose?: () => void }).dispose?.(); } catch {}
+    if (result) {
+      for (const val of Object.values(result)) {
+        try { val?.dispose?.(); } catch {}
+      }
+    }
+  }
 }

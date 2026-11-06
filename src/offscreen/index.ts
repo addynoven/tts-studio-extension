@@ -395,7 +395,11 @@ async function handleStreamBuffer(block: StreamBlock): Promise<void> {
   }
 
   log('offscreen', 'log', `Stream buffer received block ${block.index}, len=${block.text.length}`);
-  stream.textBuffer.push({ index: block.index, text: block.text });
+  const { splitTextIntoTTSChunks } = await import('../shared/sentence-splitter.js');
+  const subChunks = splitTextIntoTTSChunks(block.text, 180);
+  for (const sub of subChunks) {
+    stream.textBuffer.push({ index: block.index, text: sub });
+  }
   stream.blockMap.set(block.index, block.text);
 
   if (block.isLastBlock) {
@@ -578,12 +582,12 @@ async function handleGenerate({ text, model, voice, speed, useGPU }: {
     await resumeAudioContext();
 
     setPhase('generating', { model, currentChunk: 0, totalChunks: 1 });
-    const { splitIntoSentences } = await import('../shared/sentence-splitter.js');
-    const sentences = splitIntoSentences(text);
-    log('offscreen', 'log', 'Split into', sentences.length, 'sentences');
+    const { splitTextIntoTTSChunks } = await import('../shared/sentence-splitter.js');
+    const chunks = splitTextIntoTTSChunks(text, 180);
+    log('offscreen', 'log', 'Split into', chunks.length, 'chunks (<=180 chars each)');
 
-    if (sentences.length === 0) {
-      log('offscreen', 'error', 'No sentences found in text');
+    if (chunks.length === 0) {
+      log('offscreen', 'error', 'No chunks found in text');
       recordError('offscreen', 'No text to synthesize');
       setPhase('error', { message: 'No text to synthesize' });
       toPopup(MSG.STATUS_ERROR, { error: 'No text to synthesize' });
@@ -591,13 +595,13 @@ async function handleGenerate({ text, model, voice, speed, useGPU }: {
       return;
     }
 
-    if (sentences.length === 1) {
-      log('offscreen', 'log', 'Single sentence — direct synthesis');
+    if (chunks.length === 1 && chunks[0].length <= 180) {
+      log('offscreen', 'log', 'Single short chunk — direct synthesis');
       addTimelineItem({ label: 'Synthesize text', status: 'running' });
-      const inferRes = await inferViaWorker(model, text, voice, speed);
+      const inferRes = await inferViaWorker(model, chunks[0], voice, speed);
       const { audio, sampleRate, playbackRate } = inferRes;
       const buffer = createAudioBuffer(new Float32Array(audio), sampleRate);
-      chunkTexts[0] = text;
+      chunkTexts[0] = chunks[0];
       enqueueChunk(0, buffer, playbackRate, 0, inferRes.wordTimings);
       setQueueDrained(true);
       updateTimelineItem('Synthesize text', { status: 'done' });
@@ -605,10 +609,9 @@ async function handleGenerate({ text, model, voice, speed, useGPU }: {
       return;
     }
 
-    const chunks = sentences;
     const totalChunks = chunks.length;
     const paraMap = buildParagraphMap(text, chunks);
-    log('offscreen', 'log', 'Chunked into', totalChunks, 'sentence-level chunks');
+    log('offscreen', 'log', 'Chunked into', totalChunks, 'sequential chunks');
 
     chunks.forEach((c, i) => { chunkTexts[i * 2] = c; });
 
@@ -620,7 +623,7 @@ async function handleGenerate({ text, model, voice, speed, useGPU }: {
     await setTimeline(timeline);
     await setQueueState({ totalChunks, completedChunks: 0, scheduledIndex: 0, queueSize: 0 });
 
-    pb.sentences = sentences;
+    pb.sentences = chunks;
     pb.paraMap = paraMap;
     pb.model = model;
     pb.voice = voice;

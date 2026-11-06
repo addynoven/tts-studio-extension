@@ -52,22 +52,35 @@ export async function generatePiper(text: string, speakerId = '3922', speed = 1.
   const scales = new ort.Tensor('float32', new Float32Array([0.667, lengthScale, 0.8]), [3]);
   const sidTensor = new ort.Tensor('int64', BigInt64Array.from([BigInt(speakerIdNum)]), [1]);
 
-  const result = await piperSession!.run({
-    input: inputIds,
-    input_lengths: inputLens,
-    scales,
-    sid: sidTensor
-  });
+  let result: Record<string, { data: Float32Array | BigInt64Array | number[]; dispose?: () => void }> | null = null;
+  try {
+    result = await piperSession!.run({
+      input: inputIds,
+      input_lengths: inputLens,
+      scales,
+      sid: sidTensor
+    });
 
-  const rawAudio = result.output?.data ?? result[Object.keys(result)[0]]?.data;
-  if (!rawAudio) throw new Error('No audio output from Piper model');
+    const rawAudio = result.output?.data ?? result[Object.keys(result)[0]]?.data;
+    if (!rawAudio) throw new Error('No audio output from Piper model');
 
-  const audio = rawAudio instanceof Float32Array ? rawAudio : new Float32Array(rawAudio as number[]);
-  return {
-    audio,
-    sampleRate,
-    playbackRate: 1.0
-  };
+    const audio = rawAudio instanceof Float32Array ? new Float32Array(rawAudio) : new Float32Array(rawAudio as number[]);
+    return {
+      audio,
+      sampleRate,
+      playbackRate: 1.0
+    };
+  } finally {
+    try { (inputIds as { dispose?: () => void }).dispose?.(); } catch {}
+    try { (inputLens as { dispose?: () => void }).dispose?.(); } catch {}
+    try { (scales as { dispose?: () => void }).dispose?.(); } catch {}
+    try { (sidTensor as { dispose?: () => void }).dispose?.(); } catch {}
+    if (result) {
+      for (const val of Object.values(result)) {
+        try { val?.dispose?.(); } catch {}
+      }
+    }
+  }
 }
 
 function piperTextToIds(phonemeText: string, config: PiperConfig): number[] {
