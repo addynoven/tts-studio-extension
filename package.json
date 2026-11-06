@@ -1,6 +1,6 @@
 {
   "name": "tts-studio-extension",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Studio-grade offline neural speech with Kokoro-82M WebGPU and Instant Native TTS — 100% private, zero cloud, in-page karaoke tracking.",
   "type": "module",
   "scripts": {

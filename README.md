@@ -1,4 +1,4 @@
-# 🎙️ TTS Studio — Production Workstation (v1.2.0)
+# 🎙️ TTS Studio — Production Workstation (v1.3.0)
 
 > **Studio-grade, privacy-first Text-to-Speech inside Google Chrome.**  
 > Powered by **Kokoro-82M** with WebGPU acceleration and **Instant Native OS** speech. 100% offline, zero cloud calls, zero telemetry.
@@ -91,7 +91,7 @@ To generate a production-ready ZIP archive ready for Chrome Web Store upload or 
 ```bash
 npm run package
 ```
-This will compile the extension and generate `tts-studio-v1.2.0.zip` at the project root.
+This will compile the extension and generate `tts-studio-v1.3.0.zip` at the project root.
 
 ---
 
