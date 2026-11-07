@@ -77,6 +77,11 @@ initInPageUI({
     if (!isExtensionValid()) return;
     updateSettings({ defaultSpeed: speed }).catch(() => {});
     safeSendBackground(MSG.TTS_SPEED_CHANGE, { speed });
+  },
+  onCopyTrackLog: () => {
+    return clickTrackLogs.length > 0
+      ? clickTrackLogs.join('\n\n')
+      : 'No click/read trace logs recorded yet. Click on any text while reading to see tracked events.';
   }
 });
 
@@ -96,6 +101,41 @@ onSettingsChanged((newSettings) => {
 let streamIterator: BlockIterator | null = null;
 let streamActive = false;
 let currentBlockIndex = 0;
+
+export const clickTrackLogs: string[] = [];
+
+export function recordTrackEvent(eventType: string, details: Record<string, unknown>): void {
+  const time = new Date().toLocaleTimeString('en-US', {
+    hour12: false,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    fractionalSecondDigits: 3
+  });
+
+  const detailLines = Object.entries(details)
+    .filter(([_, v]) => v !== undefined)
+    .map(([k, v]) => `  • ${k}: ${typeof v === 'string' ? JSON.stringify(v) : JSON.stringify(v)}`)
+    .join('\n');
+
+  const logStr = `[${time}] ${eventType} ${details.summary || ''}\n${detailLines}`;
+  clickTrackLogs.push(logStr);
+  if (clickTrackLogs.length > 50) clickTrackLogs.shift();
+
+  // Highlighted badge in DevTools Console
+  console.log(
+    `%c[TTS Track: ${eventType}]%c ${details.summary || ''}\n${detailLines}`,
+    'background: #0284c7; color: #fff; font-weight: bold; padding: 2px 6px; border-radius: 4px;',
+    'color: #38bdf8; font-weight: bold;'
+  );
+
+  log('content', 'log', `[Track: ${eventType}]`, details.summary || '', JSON.stringify(details));
+}
+
+if (typeof window !== 'undefined') {
+  (window as unknown as { __ttsTrackLogs: string[] }).__ttsTrackLogs = clickTrackLogs;
+  (window as unknown as { __ttsGetTrackLog: () => string }).__ttsGetTrackLog = () => clickTrackLogs.join('\n\n');
+}
 
 interface ContentMessage {
   type: string;
@@ -300,6 +340,14 @@ function seekToBlock(targetIndex: number, startCharOffset = 0): void {
     if (startCharOffset > 0) {
       textToSend = sliceTextFromSentenceOffset(block.ttsText, startCharOffset);
     }
+    recordTrackEvent('SEEK_AND_READ', {
+      summary: `Block #${block.index} starting at charOffset ${startCharOffset}`,
+      targetBlockIndex: block.index,
+      startCharOffset,
+      totalParagraphChars: block.ttsText.length,
+      fullParagraph: block.ttsText.slice(0, 100) + '...',
+      spokenTextPreview: textToSend.slice(0, 100) + '...'
+    });
     sendBlockReady({ ...block, ttsText: textToSend }, streamIterator.cursor >= streamIterator.totalBlocks);
     showMiniPlayer();
     updateMiniPlayerState({ isPlaying: true });
@@ -377,6 +425,13 @@ async function handleStreamStartFromSelection(selectionText?: string): Promise<v
       } catch {}
     }
 
+    recordTrackEvent('SELECTION_TRIGGER', {
+      summary: `Selection in Block #${startIndex} (Offset: ${charOffset})`,
+      startIndex,
+      charOffset,
+      selectedSnippet: text.slice(0, 80)
+    });
+
     clearAll();
     streamIterator = iter;
     streamActive = true;
@@ -392,6 +447,10 @@ async function handleStreamStartFromSelection(selectionText?: string): Promise<v
       const rootEl = container instanceof Element ? container : container.parentElement;
       if (rootEl) setHighlightRoot(rootEl);
     }
+    recordTrackEvent('SELECTION_BATCH_FALLBACK', {
+      summary: `No block matched, batch fallback for "${text.slice(0, 50)}..."`,
+      textLength: text.length
+    });
     try {
       const settings = await getSettings();
       safeSendBackground(MSG.TTS_GENERATE, {
@@ -452,6 +511,11 @@ function handleHighlightBlock(blockIndex: number): void {
   currentBlockIndex = blockIndex;
   const block = streamIterator.getBlock(blockIndex);
   if (block?.el) {
+    recordTrackEvent('HIGHLIGHT_UPDATE', {
+      summary: `Block #${blockIndex} highlighted in view`,
+      blockIndex,
+      blockTextSnippet: block.ttsText.slice(0, 80)
+    });
     highlightElement(block.el);
   }
 }
@@ -479,6 +543,18 @@ document.addEventListener('click', (e: MouseEvent) => {
   }
 
   const clickedIndex = streamIterator.findBlockIndexByNode(target);
+
+  recordTrackEvent('MOUSE_CLICK', {
+    summary: `<${target.tagName.toLowerCase()}> at (${e.clientX}, ${e.clientY})`,
+    tag: target.tagName,
+    id: target.id || undefined,
+    className: target.className || undefined,
+    clickedSnippet: (target.textContent || '').trim().slice(0, 80),
+    isInsideLink: Boolean(target.closest('a')),
+    matchedBlockIndex: clickedIndex,
+    streamActive
+  });
+
   if (clickedIndex >= 0) {
     // If clicking a link within the readable block while TTS is active, prevent navigation
     if (target.closest('a')) {
@@ -510,7 +586,14 @@ document.addEventListener('click', (e: MouseEvent) => {
       } catch {}
     }
 
-    log('content', 'log', 'Click-to-seek jumped to block:', clickedIndex, 'charOffset:', charOffset);
+    recordTrackEvent('CLICK_SEEK_DISPATCH', {
+      summary: `Seeking to Block #${clickedIndex} at charOffset ${charOffset}`,
+      blockIndex: clickedIndex,
+      charOffset,
+      blockTagName: block?.el?.tagName,
+      paragraphPreview: block?.ttsText?.slice(0, 80)
+    });
+
     seekToBlock(clickedIndex, charOffset);
   }
 }, true);

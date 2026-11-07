@@ -217,6 +217,8 @@ setTimingCallback(({ index, semanticId, startTime, duration }) => {
 
   // Streaming mode: highlight block by semantic ID
   if (stream.active && semanticId !== undefined) {
+    const chunkText = chunkTexts[index];
+    log('offscreen', 'log', `[Track: AUDIO_PLAYING] Block #${semanticId}: "${chunkText?.slice(0, 80) || ''}..."`);
     toContent(MSG.HIGHLIGHT_BLOCK, { blockIndex: Number(semanticId) });
     return;
   }
@@ -561,7 +563,7 @@ async function streamSynthesisPump(): Promise<void> {
     const { index, text } = item;
     const { model, voice, speed } = stream.settings;
 
-    log('offscreen', 'log', `Synthesizing block ${index}, ${text.length} chars`);
+    log('offscreen', 'log', `[Track: SYNTHESIZING] Block #${index} (${text.length} chars): "${text.slice(0, 80)}..."`);
     const start = performance.now();
     const inferRes = await inferViaWorker(model, text, voice, speed);
     const { audio, sampleRate, playbackRate } = inferRes;
