@@ -9,7 +9,7 @@ import { ensureOffscreen, setOffscreenReady, sendToOffscreen } from './offscreen
 import { initContextMenus } from './context-menus.js';
 import { initCommands } from './commands.js';
 import { initStateSync } from './state-manager.js';
-import { speakNative, stopNative, pauseNative, isNativeSpeaking } from './native-tts.js';
+import { speakNative, stopNative, pauseNative, isNativeSpeaking, skipForwardNative, skipBackwardNative } from './native-tts.js';
 import { log } from '../shared/logger.js';
 import { setModuleStatus, recordError } from '../shared/state-tracker.js';
 import { getSettings } from '../shared/storage.js';
@@ -128,6 +128,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return false;
   }
 
+  // ── Streaming: STREAM_SEEK from content → forward to offscreen ──
+  if (message.type === MSG.STREAM_SEEK) {
+    log('bg', 'log', 'STREAM_SEEK received, forwarding to offscreen');
+    sendToOffscreen({ target: 'offscreen', type: MSG.STREAM_SEEK, blockIndex: message.blockIndex });
+    return false;
+  }
+
   // ── TTS Generation Routing ──
   if (message.type === MSG.TTS_GENERATE) {
     if (message.model === 'native') {
@@ -193,12 +200,22 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message.type === MSG.TTS_SKIP_FORWARD) {
+    if (isNativeSpeaking()) {
+      skipForwardNative();
+      return false;
+    }
     sendToOffscreen({ target: 'offscreen', type: MSG.TTS_SKIP_FORWARD });
+    forwardToContent({ type: MSG.TTS_SKIP_FORWARD });
     return false;
   }
 
   if (message.type === MSG.TTS_SKIP_BACKWARD) {
+    if (isNativeSpeaking()) {
+      skipBackwardNative();
+      return false;
+    }
     sendToOffscreen({ target: 'offscreen', type: MSG.TTS_SKIP_BACKWARD });
+    forwardToContent({ type: MSG.TTS_SKIP_BACKWARD });
     return false;
   }
 

@@ -123,6 +123,7 @@ export const MSG = {
 
   // Streaming protocol (article read-aloud)
   STREAM_START: 'STREAM_START',
+  STREAM_SEEK: 'STREAM_SEEK',
   REQUEST_BLOCK: 'REQUEST_BLOCK',
   BLOCK_READY: 'BLOCK_READY',
   TTS_BUFFER: 'TTS_BUFFER',

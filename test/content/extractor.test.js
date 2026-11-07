@@ -16,6 +16,7 @@ vi.mock('@mozilla/readability', () => ({
 }));
 
 import { extractArticle, extractSelection, extractFromElement } from '../../src/content/extractor/index.js';
+import { BlockIterator } from '../../src/content/extractor/dom-mapper.js';
 
 describe('extractor', () => {
   beforeEach(() => {
@@ -133,6 +134,47 @@ describe('extractor', () => {
       orphan.textContent = 'Orphan text.';
       const result = extractFromElement(orphan);
       expect(result.text.trim()).toBe('');
+    });
+  });
+
+  describe('BlockIterator seeking and matching', () => {
+    it('finds block index by DOM element and child text node', () => {
+      document.body.innerHTML = `
+        <article>
+          <p id="p1">First paragraph of the chapter story.</p>
+          <p id="p2">Second paragraph with <span>nested dialogue</span> here.</p>
+          <p id="p3">Third concluding paragraph.</p>
+        </article>
+      `;
+
+      const iter = new BlockIterator({}, document.body);
+      expect(iter.totalBlocks).toBeGreaterThanOrEqual(3);
+
+      const p1 = document.getElementById('p1');
+      const p2 = document.getElementById('p2');
+      const span = p2?.querySelector('span');
+      const textNode = span?.firstChild;
+
+      expect(iter.findBlockIndexByNode(p1)).toBe(0);
+      expect(iter.findBlockIndexByNode(p2)).toBe(1);
+      expect(iter.findBlockIndexByNode(textNode)).toBe(1);
+      expect(iter.findBlockIndexByNode(null)).toBe(-1);
+    });
+
+    it('finds block index by text snippet', () => {
+      document.body.innerHTML = `
+        <article>
+          <p>The dawn brought a crisp chilly wind across the valley.</p>
+          <p>She tightened her cloak and whispered to the shadows.</p>
+        </article>
+      `;
+
+      const iter = new BlockIterator({}, document.body);
+      const idx = iter.findBlockIndexByText('tightened her cloak');
+      expect(idx).toBe(1);
+
+      const notFound = iter.findBlockIndexByText('nonexistent random alien text');
+      expect(notFound).toBe(-1);
     });
   });
 });

@@ -52,11 +52,17 @@ async function handleMenuClick(info: chrome.contextMenus.OnClickData): Promise<v
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (tab?.id) {
         await ensureContentScript(tab.id);
+        chrome.tabs.sendMessage(tab.id, { type: MSG.STATUS_PLAYING, _forwarded: true }).catch(() => {});
+        try {
+          const res = await chrome.tabs.sendMessage(tab.id, {
+            type: MSG.STREAM_START,
+            fromSelection: true,
+            text: info.selectionText.trim()
+          });
+          if (res?.ok) break;
+        } catch {}
       }
       const targetModel = model === 'native' ? 'native' : 'kokoro';
-      if (tab?.id) {
-        chrome.tabs.sendMessage(tab.id, { type: MSG.STATUS_PLAYING, _forwarded: true }).catch(() => {});
-      }
       if (targetModel === 'native') {
         stopNative();
         speakNative(info.selectionText.trim(), {

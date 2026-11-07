@@ -152,6 +152,30 @@ export function resumeNative(): void {
 }
 
 /**
+ * Skip to next sentence in native speech.
+ */
+export function skipForwardNative(): void {
+  if (!isSpeaking || currentSentences.length === 0) return;
+  currentSentenceIndex = Math.min(currentSentenceIndex + 1, currentSentences.length - 1);
+  if (typeof chrome !== 'undefined' && chrome.tts?.stop) {
+    chrome.tts.stop();
+  }
+  speakNextSentence();
+}
+
+/**
+ * Skip to previous sentence in native speech.
+ */
+export function skipBackwardNative(): void {
+  if (!isSpeaking || currentSentences.length === 0) return;
+  currentSentenceIndex = Math.max(0, currentSentenceIndex - 1);
+  if (typeof chrome !== 'undefined' && chrome.tts?.stop) {
+    chrome.tts.stop();
+  }
+  speakNextSentence();
+}
+
+/**
  * Check if native TTS is currently speaking.
  */
 export function isNativeSpeaking(): boolean {

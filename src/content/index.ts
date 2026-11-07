@@ -56,34 +56,8 @@ function safeSendBackground(type: string, payload: Record<string, unknown> = {})
 
 // Initialize in-page floating quick-play button and bottom pill player
 initInPageUI({
-  onReadSelection: async (text: string) => {
-    if (!isExtensionValid()) {
-      showReloadToast();
-      teardownInPageUI();
-      return;
-    }
-    const selection = window.getSelection();
-    if (selection && selection.rangeCount > 0) {
-      const range = selection.getRangeAt(0);
-      const container = range.commonAncestorContainer;
-      const rootEl = container instanceof Element ? container : container.parentElement;
-      if (rootEl) setHighlightRoot(rootEl);
-    }
-    try {
-      const settings = await getSettings();
-      safeSendBackground(MSG.TTS_GENERATE, {
-        text,
-        model: settings.defaultModel,
-        voice: settings.defaultVoice,
-        speed: settings.defaultSpeed,
-        useGPU: settings.executionProvider === 'webgpu'
-      });
-    } catch (err) {
-      if ((err as Error)?.message?.includes('Extension context invalidated')) {
-        showReloadToast();
-        teardownInPageUI();
-      }
-    }
+  onReadSelection: (text: string) => {
+    void handleStreamStartFromSelection(text);
   },
   onTogglePlay: () => {
     safeSendBackground(MSG.TTS_TOGGLE_PLAYBACK);
@@ -120,6 +94,7 @@ onSettingsChanged((newSettings) => {
 
 let streamIterator: BlockIterator | null = null;
 let streamActive = false;
+let currentBlockIndex = 0;
 
 interface ContentMessage {
   type: string;
@@ -159,7 +134,29 @@ function ttsMessageHandler(
       return true;
 
     case MSG.STREAM_START:
-      handleStreamStart();
+      if (message.fromSelection) {
+        void handleStreamStartFromSelection(message.text as string | undefined);
+      } else {
+        handleStreamStart(typeof message.startIndex === 'number' ? message.startIndex : 0);
+      }
+      sendResponse({ ok: true });
+      return false;
+
+    case MSG.TTS_SKIP_FORWARD:
+      if (streamActive && streamIterator) {
+        const nextIdx = Math.min(currentBlockIndex + 1, streamIterator.totalBlocks - 1);
+        log('content', 'log', 'Skipping forward to block:', nextIdx);
+        seekToBlock(nextIdx);
+      }
+      sendResponse({ ok: true });
+      return false;
+
+    case MSG.TTS_SKIP_BACKWARD:
+      if (streamActive && streamIterator) {
+        const prevIdx = Math.max(0, currentBlockIndex - 1);
+        log('content', 'log', 'Skipping backward to block:', prevIdx);
+        seekToBlock(prevIdx);
+      }
       sendResponse({ ok: true });
       return false;
 
@@ -204,6 +201,7 @@ function ttsMessageHandler(
     case MSG.TTS_STOP:
       hideMiniPlayer();
       clearAll();
+      streamActive = false;
       sendResponse({ ok: true });
       return false;
 
@@ -266,21 +264,118 @@ function handleExtractArticle(message: ContentMessage, sendResponse: (res: unkno
   sendResponse({ title, text: fullText, length: fullText.length });
 }
 
-function handleStreamStart(): void {
-  log('content', 'log', 'STREAM_START received');
+function seekToBlock(targetIndex: number): void {
+  if (!streamIterator) return;
+  const clampedIndex = Math.max(0, Math.min(targetIndex, streamIterator.totalBlocks - 1));
+  currentBlockIndex = clampedIndex;
+  streamIterator.seek(clampedIndex);
+  safeSendBackground(MSG.STREAM_SEEK, { blockIndex: clampedIndex });
+  handleHighlightBlock(clampedIndex);
+
+  const block = streamIterator.next();
+  if (block) {
+    sendBlockReady(block, streamIterator.cursor >= streamIterator.totalBlocks);
+    showMiniPlayer();
+    updateMiniPlayerState({ isPlaying: true });
+  }
+}
+
+function handleStreamStart(startIndex = 0): void {
+  log('content', 'log', 'STREAM_START received, startIndex:', startIndex);
 
   clearAll();
   streamIterator = new BlockIterator();
   streamActive = true;
 
+  if (startIndex > 0 && startIndex < streamIterator.totalBlocks) {
+    streamIterator.seek(startIndex);
+  }
+  currentBlockIndex = streamIterator.cursor;
+  safeSendBackground(MSG.STREAM_SEEK, { blockIndex: currentBlockIndex });
+
   log('content', 'log', 'BlockIterator initialized,', streamIterator.totalBlocks, 'raw blocks');
 
   const block = streamIterator.next();
   if (block) {
-    sendBlockReady(block, false);
+    handleHighlightBlock(block.index);
+    sendBlockReady(block, streamIterator.cursor >= streamIterator.totalBlocks);
+    showMiniPlayer();
+    updateMiniPlayerState({ isPlaying: true });
   } else {
     log('content', 'warn', 'No readable blocks found on page');
     streamActive = false;
+  }
+}
+
+async function handleStreamStartFromSelection(selectionText?: string): Promise<void> {
+  if (!isExtensionValid()) {
+    showReloadToast();
+    teardownInPageUI();
+    return;
+  }
+
+  const selection = window.getSelection();
+  const text = selectionText || selection?.toString().trim() || '';
+  const anchorNode = selection?.anchorNode;
+
+  let iter = new BlockIterator();
+  let startIndex = -1;
+  if (anchorNode) {
+    startIndex = iter.findBlockIndexByNode(anchorNode);
+  }
+  if (startIndex === -1 && text) {
+    startIndex = iter.findBlockIndexByText(text);
+  }
+  if (startIndex === -1 && anchorNode) {
+    const bodyIter = new BlockIterator({}, document.body);
+    const bodyIdx = bodyIter.findBlockIndexByNode(anchorNode);
+    if (bodyIdx >= 0) {
+      iter = bodyIter;
+      startIndex = bodyIdx;
+    }
+  }
+
+  if (startIndex >= 0) {
+    clearAll();
+    streamIterator = iter;
+    streamActive = true;
+    streamIterator.seek(startIndex);
+    currentBlockIndex = startIndex;
+    safeSendBackground(MSG.STREAM_SEEK, { blockIndex: startIndex });
+
+    const block = streamIterator.next();
+    if (block) {
+      handleHighlightBlock(block.index);
+      sendBlockReady(block, streamIterator.cursor >= streamIterator.totalBlocks);
+      showMiniPlayer();
+      updateMiniPlayerState({ isPlaying: true });
+      return;
+    }
+  }
+
+  // Fallback to one-off TTS_GENERATE if no readable block could be matched
+  if (text) {
+    if (selection && selection.rangeCount > 0) {
+      const range = selection.getRangeAt(0);
+      const container = range.commonAncestorContainer;
+      const rootEl = container instanceof Element ? container : container.parentElement;
+      if (rootEl) setHighlightRoot(rootEl);
+    }
+    try {
+      const settings = await getSettings();
+      safeSendBackground(MSG.TTS_GENERATE, {
+        text,
+        model: settings.defaultModel,
+        voice: settings.defaultVoice,
+        speed: settings.defaultSpeed,
+        useGPU: settings.executionProvider === 'webgpu'
+      });
+    } catch (err) {
+      if ((err as Error)?.message?.includes('Extension context invalidated')) {
+        showReloadToast();
+        teardownInPageUI();
+      }
+    }
   }
 }
 
@@ -322,8 +417,33 @@ function sendBlockReady(block: ExtractedBlock, isLast: boolean): void {
 
 function handleHighlightBlock(blockIndex: number): void {
   if (!streamIterator || blockIndex < 0) return;
+  currentBlockIndex = blockIndex;
   const block = streamIterator.getBlock(blockIndex);
   if (block?.el) {
     highlightElement(block.el);
   }
 }
+
+// Click-to-seek listener (Edge Read Aloud style)
+document.addEventListener('click', (e: MouseEvent) => {
+  if (!streamActive || !streamIterator) return;
+  const target = e.target as HTMLElement | null;
+  if (!target) return;
+
+  // Skip interactive UI elements
+  if (target.closest('a, button, input, textarea, select, option, label, [role="button"], .tts-studio-float-btn, .tts-mini-player, #tts-studio-root')) {
+    return;
+  }
+
+  // Skip if user was dragging or selecting text
+  const sel = window.getSelection();
+  if (sel && !sel.isCollapsed && (sel.toString() || '').trim().length > 0) {
+    return;
+  }
+
+  const clickedIndex = streamIterator.findBlockIndexByNode(target);
+  if (clickedIndex >= 0) {
+    log('content', 'log', 'Click-to-seek jumped to block:', clickedIndex);
+    seekToBlock(clickedIndex);
+  }
+}, true);

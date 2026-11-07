@@ -92,4 +92,26 @@ describe('background message router', () => {
       expect.objectContaining({ type: MSG.ARTICLE_EXTRACTED })
     );
   });
+
+  it('routes TTS_SKIP_FORWARD to both offscreen and content tabs', async () => {
+    const msg = { type: MSG.TTS_SKIP_FORWARD };
+    messageHandler(msg, {}, vi.fn());
+    await new Promise(r => setTimeout(r, 10));
+    expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ target: 'offscreen', type: MSG.TTS_SKIP_FORWARD })
+    );
+    expect(chrome.tabs.sendMessage).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({ type: MSG.TTS_SKIP_FORWARD, _forwarded: true })
+    );
+  });
+
+  it('routes STREAM_SEEK to offscreen', async () => {
+    const msg = { type: MSG.STREAM_SEEK, blockIndex: 5 };
+    messageHandler(msg, {}, vi.fn());
+    await new Promise(r => setTimeout(r, 10));
+    expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ target: 'offscreen', type: MSG.STREAM_SEEK, blockIndex: 5 })
+    );
+  });
 });

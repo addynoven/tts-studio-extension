@@ -63,6 +63,16 @@ describe('context-menus', () => {
     );
   });
 
+  it('handles read-selection with STREAM_START when content script accepts', async () => {
+    chrome.tabs.sendMessage.mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ ok: true });
+    await clickHandler({ menuItemId: 'tts-read-selection', selectionText: 'Chapter one begins here.' });
+    expect(chrome.tabs.sendMessage).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({ type: MSG.STREAM_START, fromSelection: true, text: 'Chapter one begins here.' })
+    );
+  });
+
   it('ignores read-selection without text', async () => {
     await clickHandler({ menuItemId: 'tts-read-selection', selectionText: '' });
     expect(chrome.runtime.sendMessage).not.toHaveBeenCalled();

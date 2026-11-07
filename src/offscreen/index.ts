@@ -425,6 +425,23 @@ chrome.runtime.onMessage.addListener((message) => {
     return;
   }
 
+  if (message.type === MSG.STREAM_SEEK) {
+    log('offscreen', 'log', 'STREAM_SEEK received, resetting scheduler and buffers for block', message.blockIndex);
+    currentGenerationId++;
+    resetScheduler();
+    stream.textBuffer = [];
+    stream.audioQueue = [];
+    stream.synthesizing = false;
+    stream.ended = false;
+    stream.isPaused = false;
+    stream.blockMap.clear();
+    stream.schedulerIndex = 0;
+    hasAnnouncedPlaying = false;
+    toPopup(MSG.STATUS_PLAYING);
+    toContent(MSG.STATUS_PLAYING);
+    return;
+  }
+
   if (message.type === MSG.TTS_STOP) {
     log('offscreen', 'log', 'Stop requested');
     currentGenerationId++;

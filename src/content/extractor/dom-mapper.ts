@@ -48,13 +48,13 @@ export class BlockIterator {
   private stopReached: boolean;
   public title: string;
 
-  constructor(sanitizerOpts: SanitizerOptions = {}) {
+  constructor(sanitizerOpts: SanitizerOptions = {}, rootElement?: Element | null) {
     this.sanitizerOpts = sanitizerOpts;
     this.cursor = 0;
     this.blocks = [];
     this.stopReached = false;
 
-    const articleRoot = findArticleRoot();
+    const articleRoot = rootElement !== undefined ? rootElement : findArticleRoot();
     const root = articleRoot || document.body;
     this.title = document.title || '';
 
@@ -114,6 +114,44 @@ export class BlockIterator {
 
   seek(index: number): void {
     this.cursor = Math.max(0, Math.min(index, this.blocks.length));
+  }
+
+  findBlockIndexByNode(node: Node | null): number {
+    if (!node) return -1;
+    const targetEl = (node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement) as Element | null;
+    if (!targetEl) return -1;
+
+    // 1. Direct match or descendant match (target is within block element)
+    for (let i = 0; i < this.blocks.length; i++) {
+      const blockEl = this.blocks[i].el;
+      if (blockEl === targetEl || blockEl.contains(targetEl)) {
+        return i;
+      }
+    }
+
+    // 2. Ancestor match (e.g. user selected container or outer wrapper)
+    for (let i = 0; i < this.blocks.length; i++) {
+      const blockEl = this.blocks[i].el;
+      if (targetEl.contains(blockEl)) {
+        return i;
+      }
+    }
+
+    return -1;
+  }
+
+  findBlockIndexByText(snippet: string): number {
+    if (!snippet) return -1;
+    const cleanSnippet = snippet.trim().toLowerCase().slice(0, 100);
+    if (cleanSnippet.length < 5) return -1;
+
+    for (let i = 0; i < this.blocks.length; i++) {
+      const text = this.blocks[i].rawText.toLowerCase();
+      if (text.includes(cleanSnippet) || cleanSnippet.includes(text.slice(0, 50))) {
+        return i;
+      }
+    }
+    return -1;
   }
 
   peek(): ExtractedBlock | null {
