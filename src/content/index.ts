@@ -151,7 +151,7 @@ function ttsMessageHandler(
       return false;
 
     case MSG.EXTRACT_ARTICLE:
-      handleExtractArticle(sendResponse);
+      handleExtractArticle(message, sendResponse);
       return true;
 
     case MSG.GET_SELECTION:
@@ -234,8 +234,8 @@ function handleGetSelection(sendResponse: (res: unknown) => void): void {
   sendResponse(result || { text: '', sentences: [], length: 0 });
 }
 
-function handleExtractArticle(sendResponse: (res: unknown) => void): void {
-  log('content', 'log', 'EXTRACT_ARTICLE received (batch mode)');
+function handleExtractArticle(message: ContentMessage, sendResponse: (res: unknown) => void): void {
+  log('content', 'log', 'EXTRACT_ARTICLE received (batch mode), previewOnly:', Boolean(message.previewOnly));
 
   const { blocks, title, fullText } = extractMappedArticle();
   log('content', 'log', 'Extracted:', title, '|', blocks.length, 'blocks |', fullText.length, 'chars');
@@ -251,15 +251,17 @@ function handleExtractArticle(sendResponse: (res: unknown) => void): void {
 
   const blockTexts = blocks.map(b => b.ttsText);
 
-  safeSendBackground(MSG.ARTICLE_EXTRACTED, {
-    article: {
-      title,
-      text: fullText,
-      blockTexts,
-      length: fullText.length,
-      url: location.href
-    }
-  });
+  if (!message.previewOnly) {
+    safeSendBackground(MSG.ARTICLE_EXTRACTED, {
+      article: {
+        title,
+        text: fullText,
+        blockTexts,
+        length: fullText.length,
+        url: location.href
+      }
+    });
+  }
 
   sendResponse({ title, text: fullText, length: fullText.length });
 }

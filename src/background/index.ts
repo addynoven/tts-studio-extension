@@ -155,6 +155,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       return false;
     } else {
       log('bg', 'log', 'Kokoro neural TTS generate requested, routing to offscreen');
+      stopNative();
+      forwardToContent({ type: MSG.STATUS_PLAYING });
       sendToOffscreen({
         target: 'offscreen',
         type: MSG.TTS_GENERATE,
@@ -170,6 +172,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   if (message.type === MSG.TTS_STOP) {
     stopNative();
+    sendToOffscreen({ target: 'offscreen', type: MSG.TTS_STOP });
+    forwardToContent({ type: MSG.TTS_STOP });
+    chrome.runtime.sendMessage({ target: 'popup', type: MSG.STATUS_DONE, _forwarded: true }).catch(() => {});
+    return false;
   }
 
   if (message.type === MSG.TTS_SPEED_CHANGE) {
@@ -182,6 +188,18 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       pauseNative();
       return false;
     }
+    sendToOffscreen({ target: 'offscreen', type: MSG.TTS_TOGGLE_PLAYBACK });
+    return false;
+  }
+
+  if (message.type === MSG.TTS_SKIP_FORWARD) {
+    sendToOffscreen({ target: 'offscreen', type: MSG.TTS_SKIP_FORWARD });
+    return false;
+  }
+
+  if (message.type === MSG.TTS_SKIP_BACKWARD) {
+    sendToOffscreen({ target: 'offscreen', type: MSG.TTS_SKIP_BACKWARD });
+    return false;
   }
 
   // ── Popup/commands → offscreen ──

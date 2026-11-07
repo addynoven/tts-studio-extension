@@ -54,6 +54,9 @@ async function handleMenuClick(info: chrome.contextMenus.OnClickData): Promise<v
         await ensureContentScript(tab.id);
       }
       const targetModel = model === 'native' ? 'native' : 'kokoro';
+      if (tab?.id) {
+        chrome.tabs.sendMessage(tab.id, { type: MSG.STATUS_PLAYING, _forwarded: true }).catch(() => {});
+      }
       if (targetModel === 'native') {
         stopNative();
         speakNative(info.selectionText.trim(), {
@@ -94,6 +97,7 @@ async function handleMenuClick(info: chrome.contextMenus.OnClickData): Promise<v
 
       await ensureContentScript(tab.id);
 
+      chrome.tabs.sendMessage(tab.id, { type: MSG.STATUS_PLAYING, _forwarded: true }).catch(() => {});
       chrome.tabs.sendMessage(tab.id, { type: MSG.STREAM_START })
         .catch((e: Error) => console.error('[TTS Studio] STREAM_START failed:', e.message));
       break;

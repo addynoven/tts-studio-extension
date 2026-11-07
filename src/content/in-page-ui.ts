@@ -119,56 +119,69 @@ function injectStyles(): void {
       z-index: 2147483646;
       display: flex;
       align-items: center;
-      gap: 10px;
-      padding: 8px 16px;
-      background: rgba(15, 23, 42, 0.88);
+      gap: 8px;
+      padding: 6px 14px;
+      background: rgba(10, 11, 16, 0.94);
       backdrop-filter: blur(16px);
       -webkit-backdrop-filter: blur(16px);
       color: #f8fafc;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       font-size: 13px;
       border-radius: 9999px;
-      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.15);
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.12);
       animation: tts-slide-up 0.2s cubic-bezier(0.16, 1, 0.3, 1);
       user-select: none;
     }
     .tts-studio-mini-player button {
       background: transparent;
       border: none;
-      color: #f8fafc;
+      color: #94a3b8;
       cursor: pointer;
       font-size: 13px;
-      padding: 4px 8px;
+      padding: 6px 8px;
       border-radius: 6px;
       display: flex;
       align-items: center;
       justify-content: center;
-      transition: background 0.15s ease, opacity 0.15s ease;
+      transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
     }
     .tts-studio-mini-player button:hover {
-      background: rgba(255, 255, 255, 0.12);
+      background: rgba(255, 255, 255, 0.08);
+      color: #f8fafc;
     }
     .tts-studio-mini-player button:active {
-      transform: scale(0.94);
+      transform: scale(0.92);
     }
     .tts-studio-mini-player .tts-play-btn {
       width: 32px;
       height: 32px;
       border-radius: 50%;
       background: #10b981;
-      color: #0f172a;
-      font-weight: 700;
+      color: #052e16;
+      padding: 0;
     }
     .tts-studio-mini-player .tts-play-btn:hover {
       background: #34d399;
+      color: #052e16;
+    }
+    .tts-studio-mini-player .tts-close-btn:hover {
+      background: rgba(239, 68, 68, 0.2);
+      color: #f87171;
     }
     .tts-studio-speed-badge {
       font-size: 11px;
       font-weight: 600;
-      padding: 3px 6px;
-      border-radius: 4px;
-      background: rgba(255, 255, 255, 0.1);
+      padding: 3px 8px;
+      border-radius: 9999px;
+      background: rgba(255, 255, 255, 0.08);
+      color: #e2e8f0;
+      border: 1px solid rgba(255, 255, 255, 0.08);
       cursor: pointer;
+      transition: background 0.15s ease, border-color 0.15s ease;
+    }
+    .tts-studio-speed-badge:hover {
+      background: rgba(255, 255, 255, 0.14);
+      border-color: rgba(255, 255, 255, 0.18);
     }
 
     .tts-studio-reload-toast {
@@ -362,14 +375,20 @@ function safeExecute(action: () => void): void {
 function renderMiniPlayerContent(): void {
   if (!miniPlayerEl) return;
 
+  const playSvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 4 20 12 6 20 6 4"></polygon></svg>`;
+  const pauseSvg = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>`;
+  const prevSvg = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="19 20 9 12 19 4 19 20"></polygon><line x1="5" y1="19" x2="5" y2="5"></line></svg>`;
+  const nextSvg = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4"></polygon><line x1="19" y1="5" x2="19" y2="19"></line></svg>`;
+  const closeSvg = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>`;
+
   miniPlayerEl.innerHTML = `
-    <button class="tts-prev-btn" title="Previous sentence">⏮</button>
-    <button class="tts-play-btn" title="${isPlayingState ? 'Pause' : 'Play'}">
-      ${isPlayingState ? '⏸' : '▶'}
+    <button class="tts-prev-btn" title="Previous sentence">${prevSvg}</button>
+    <button class="tts-play-btn" title="${isPlayingState ? 'Pause' : 'Play'}" aria-label="${isPlayingState ? 'Pause' : 'Play'}">
+      ${isPlayingState ? pauseSvg : playSvg}
     </button>
-    <button class="tts-next-btn" title="Next sentence">⏭</button>
+    <button class="tts-next-btn" title="Next sentence">${nextSvg}</button>
     <span class="tts-studio-speed-badge" title="Change speaking speed">${currentSpeed}×</span>
-    <button class="tts-close-btn" title="Stop & close">✕</button>
+    <button class="tts-close-btn" title="Stop & close">${closeSvg}</button>
   `;
 
   miniPlayerEl.querySelector('.tts-play-btn')?.addEventListener('click', () => {

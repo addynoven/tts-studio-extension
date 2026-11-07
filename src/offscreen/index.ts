@@ -403,6 +403,8 @@ chrome.runtime.onMessage.addListener((message) => {
     log('offscreen', 'log', 'Stop requested');
     if (stream.active) {
       stopStream();
+      toContent(MSG.STATUS_DONE);
+      toPopup(MSG.STATUS_DONE);
       return;
     }
     pb.active = false;
@@ -413,6 +415,8 @@ chrome.runtime.onMessage.addListener((message) => {
     hasAnnouncedPlaying = false;
     resetScheduler();
     toContent(MSG.CLEAR_HIGHLIGHTS);
+    toContent(MSG.STATUS_DONE);
+    toPopup(MSG.STATUS_DONE);
     return;
   }
 });

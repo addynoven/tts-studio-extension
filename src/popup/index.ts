@@ -170,7 +170,7 @@ async function updatePageDeck(): Promise<void> {
 
     // Estimate read time based on title or content
     try {
-      const res = await chrome.tabs.sendMessage(tab.id!, { type: MSG.EXTRACT_ARTICLE }) as { text?: string; length?: number } | undefined;
+      const res = await chrome.tabs.sendMessage(tab.id!, { type: MSG.EXTRACT_ARTICLE, previewOnly: true }) as { text?: string; length?: number } | undefined;
       if (res && typeof res.length === 'number' && res.length > 50) {
         const words = Math.round(res.length / 5);
         const mins = Math.max(1, Math.round(words / 180));
@@ -274,6 +274,7 @@ async function generate(): Promise<void> {
 function pause(): void {
   if (uiState !== 'loading' && uiState !== 'playing') return;
   chrome.runtime.sendMessage({ type: MSG.TTS_TOGGLE_PLAYBACK }).catch(() => {});
+  chrome.runtime.sendMessage({ target: 'offscreen', type: MSG.TTS_TOGGLE_PLAYBACK }).catch(() => {});
   setUIState('paused');
   setStatus('paused', 'Paused');
 }
@@ -281,15 +282,18 @@ function pause(): void {
 function resume(): void {
   if (uiState !== 'paused') return;
   chrome.runtime.sendMessage({ type: MSG.TTS_TOGGLE_PLAYBACK }).catch(() => {});
+  chrome.runtime.sendMessage({ target: 'offscreen', type: MSG.TTS_TOGGLE_PLAYBACK }).catch(() => {});
   setUIState('playing');
   setStatus('playing', 'Playing…');
 }
 
 function stop(): void {
   chrome.runtime.sendMessage({ type: MSG.TTS_STOP }).catch(() => {});
+  chrome.runtime.sendMessage({ target: 'offscreen', type: MSG.TTS_STOP }).catch(() => {});
   chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
     if (tab?.id) {
       chrome.tabs.sendMessage(tab.id, { type: MSG.CLEAR_HIGHLIGHTS }).catch(() => {});
+      chrome.tabs.sendMessage(tab.id, { type: MSG.TTS_STOP }).catch(() => {});
     }
   });
   setUIState('idle');

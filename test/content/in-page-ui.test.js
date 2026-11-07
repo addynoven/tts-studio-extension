@@ -52,7 +52,7 @@ describe('in-page-ui', () => {
     expect(cb.onTogglePlay).toHaveBeenCalledTimes(1);
 
     updateMiniPlayerState({ isPlaying: true });
-    expect(player?.querySelector('.tts-play-btn')?.textContent?.trim()).toBe('⏸');
+    expect(player?.querySelector('.tts-play-btn')?.getAttribute('aria-label')).toBe('Pause');
 
     hideMiniPlayer();
     expect(document.querySelector('.tts-studio-mini-player')).toBeNull();
