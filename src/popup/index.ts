@@ -25,12 +25,7 @@ const btnSelected = document.getElementById('btnSelected') as HTMLButtonElement;
 const btnOptions = document.getElementById('btnOptions') as HTMLButtonElement;
 const btnDebug = document.getElementById('btnDebug') as HTMLButtonElement;
 const gpuToggle = document.getElementById('gpuToggle') as HTMLDivElement;
-
 const btnExtractArticle = document.getElementById('btnExtractArticle') as HTMLButtonElement;
-const extractionPanel = document.getElementById('extractionPanel') as HTMLDivElement;
-const extractResultText = document.getElementById('extractResultText') as HTMLTextAreaElement;
-const btnCloseExtract = document.getElementById('btnCloseExtract') as HTMLButtonElement;
-const btnCopyExtract = document.getElementById('btnCopyExtract') as HTMLButtonElement;
 
 // ── State ──────────────────────────────────────────────────────────────────
 
@@ -56,12 +51,12 @@ async function init(): Promise<void> {
   });
 
   // Debug toggle button
-  btnDebug.addEventListener('click', () => {
+  btnDebug?.addEventListener('click', () => {
     const visible = toggleDebugPanel();
     btnDebug.style.opacity = visible ? '1' : '0.5';
   });
   document.addEventListener('debug-panel-closed', () => {
-    btnDebug.style.opacity = '0.5';
+    if (btnDebug) btnDebug.style.opacity = '0.5';
   });
 
   // Restore saved settings from unified storage
@@ -102,39 +97,33 @@ async function init(): Promise<void> {
 
   // GPU toggle
   const isGpu = settings.executionProvider === 'webgpu';
-  gpuToggle.classList.toggle('on', isGpu);
-  gpuToggle.addEventListener('click', async () => {
+  gpuToggle?.classList.toggle('on', isGpu);
+  gpuToggle?.addEventListener('click', async () => {
     gpuToggle.classList.toggle('on');
     const enabled = gpuToggle.classList.contains('on');
     await updateSettings({ executionProvider: enabled ? 'webgpu' : 'wasm' });
   });
 
   // Text input
-  if (settings.lastInputText) textInput.value = settings.lastInputText;
-  charCount.textContent = String(textInput.value.length);
-  textInput.addEventListener('input', () => {
-    charCount.textContent = String(textInput.value.length);
-    updateSettings({ lastInputText: textInput.value });
-  });
+  if (textInput) {
+    if (settings.lastInputText) textInput.value = settings.lastInputText;
+    if (charCount) charCount.textContent = String(textInput.value.length);
+    textInput.addEventListener('input', () => {
+      if (charCount) charCount.textContent = String(textInput.value.length);
+      updateSettings({ lastInputText: textInput.value });
+    });
+  }
 
-  // Buttons
-  btnGenerate.addEventListener('click', onGenerateClick);
-  btnStop.addEventListener('click', stop);
-  btnSelected.addEventListener('click', useSelectedText);
-  btnExtractArticle.addEventListener('click', extractArticle);
-
-  btnCloseExtract.addEventListener('click', () => {
-    extractionPanel.style.display = 'none';
-  });
-
-  btnCopyExtract.addEventListener('click', () => {
-    extractResultText.select();
-    document.execCommand('copy');
-    btnCopyExtract.textContent = 'Copied!';
-    setTimeout(() => { btnCopyExtract.textContent = 'Copy'; }, 2000);
-  });
+  // Action Buttons
+  btnGenerate?.addEventListener('click', onGenerateClick);
+  btnStop?.addEventListener('click', stop);
+  btnSelected?.addEventListener('click', useSelectedText);
+  btnExtractArticle?.addEventListener('click', onExtractArticleClick);
 
   initCopyButton();
+
+  // Active Tab Page Deck detection
+  void updatePageDeck();
 
   // Message listener (offscreen + debug)
   chrome.runtime.onMessage.addListener(handleMessages);
@@ -146,7 +135,69 @@ async function init(): Promise<void> {
   await chrome.runtime.sendMessage({ type: MSG.ENSURE_OFFSCREEN }).catch(() => {});
 }
 
+// ── Active Page Deck ───────────────────────────────────────────────────────
+
+async function updatePageDeck(): Promise<void> {
+  const deckTitle = document.getElementById('deckTitle');
+  const deckDomain = document.getElementById('deckDomain');
+  const deckStats = document.getElementById('deckStats');
+  if (!deckTitle || !deckDomain) return;
+
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab || !tab.url) {
+      deckDomain.textContent = 'Active Tab';
+      deckTitle.textContent = 'No web page loaded';
+      if (deckStats) deckStats.textContent = 'Ready';
+      return;
+    }
+
+    if (tab.url.startsWith('chrome://') || tab.url.startsWith('edge://') || tab.url.startsWith('chrome-extension://')) {
+      deckDomain.textContent = 'Browser System';
+      deckTitle.textContent = tab.title || 'Settings page';
+      if (deckStats) deckStats.textContent = 'Offline';
+      return;
+    }
+
+    try {
+      const url = new URL(tab.url);
+      deckDomain.textContent = url.hostname.replace(/^www\./, '');
+    } catch {
+      deckDomain.textContent = 'Web Page';
+    }
+
+    deckTitle.textContent = tab.title || 'Web Document';
+
+    // Estimate read time based on title or content
+    try {
+      const res = await chrome.tabs.sendMessage(tab.id!, { type: MSG.EXTRACT_ARTICLE }) as { text?: string; length?: number } | undefined;
+      if (res && typeof res.length === 'number' && res.length > 50) {
+        const words = Math.round(res.length / 5);
+        const mins = Math.max(1, Math.round(words / 180));
+        if (deckStats) deckStats.textContent = `~${mins} min read · ${words} words`;
+      } else {
+        if (deckStats) deckStats.textContent = 'Article detected';
+      }
+    } catch {
+      if (deckStats) deckStats.textContent = 'Web Document';
+    }
+  } catch {
+    deckDomain.textContent = 'Browser Tab';
+    deckTitle.textContent = 'Ready to read';
+  }
+}
+
 // ── Actions ────────────────────────────────────────────────────────────────
+
+function onExtractArticleClick(): void {
+  if (uiState === 'idle') {
+    extractArticle();
+  } else if (uiState === 'loading' || uiState === 'playing') {
+    pause();
+  } else if (uiState === 'paused') {
+    resume();
+  }
+}
 
 async function extractArticle(): Promise<void> {
   setUIState('loading');
@@ -189,7 +240,7 @@ function onGenerateClick(): void {
 }
 
 async function generate(): Promise<void> {
-  const text = textInput.value.trim();
+  const text = textInput ? textInput.value.trim() : '';
   if (!text) { setStatus('idle', 'Enter some text first'); return; }
   if (uiState === 'loading' || uiState === 'playing') return;
   if (uiState === 'paused') stop();
@@ -213,7 +264,7 @@ async function generate(): Promise<void> {
     model: getActiveModel(),
     voice: getSelectedVoice(),
     speed: getSpeed(),
-    useGPU: gpuToggle.classList.contains('on')
+    useGPU: gpuToggle ? gpuToggle.classList.contains('on') : true
   }).catch((e: Error) => {
     setUIState('idle');
     setStatus('error', e.message);
@@ -258,9 +309,12 @@ async function useSelectedText(): Promise<void> {
   try {
     const res = await chrome.tabs.sendMessage(tab.id, { type: MSG.GET_SELECTION }) as { text?: string } | undefined;
     if (res?.text) {
-      textInput.value = res.text;
-      charCount.textContent = String(res.text.length);
-      await updateSettings({ lastInputText: res.text });
+      if (textInput) {
+        textInput.value = res.text;
+        if (charCount) charCount.textContent = String(res.text.length);
+        await updateSettings({ lastInputText: res.text });
+      }
+      generate();
     } else {
       setStatus('idle', 'No text selected on page');
     }
@@ -275,26 +329,53 @@ function setUIState(state: UIState): void {
   uiState = state;
   clearGenerationTimeout();
 
+  const playIcon = `<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>`;
+  const pauseIcon = `<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>`;
+
   switch (state) {
     case 'idle':
-      btnGenerate.innerHTML = '<span>▶</span> Generate';
-      btnGenerate.disabled = false;
-      btnStop.disabled = true;
+      if (btnExtractArticle) {
+        btnExtractArticle.innerHTML = `${playIcon} <span>Read Article</span>`;
+        btnExtractArticle.disabled = false;
+      }
+      if (btnGenerate) {
+        btnGenerate.innerHTML = `${playIcon} <span>Synthesize Text</span>`;
+        btnGenerate.disabled = false;
+      }
+      if (btnStop) btnStop.disabled = true;
       break;
     case 'loading':
-      btnGenerate.innerHTML = '<span>⏸</span> Pause';
-      btnGenerate.disabled = false;
-      btnStop.disabled = false;
+      if (btnExtractArticle) {
+        btnExtractArticle.innerHTML = `${pauseIcon} <span>Pause</span>`;
+        btnExtractArticle.disabled = false;
+      }
+      if (btnGenerate) {
+        btnGenerate.innerHTML = `${pauseIcon} <span>Pause</span>`;
+        btnGenerate.disabled = false;
+      }
+      if (btnStop) btnStop.disabled = false;
       break;
     case 'playing':
-      btnGenerate.innerHTML = '<span>⏸</span> Pause';
-      btnGenerate.disabled = false;
-      btnStop.disabled = false;
+      if (btnExtractArticle) {
+        btnExtractArticle.innerHTML = `${pauseIcon} <span>Pause</span>`;
+        btnExtractArticle.disabled = false;
+      }
+      if (btnGenerate) {
+        btnGenerate.innerHTML = `${pauseIcon} <span>Pause</span>`;
+        btnGenerate.disabled = false;
+      }
+      if (btnStop) btnStop.disabled = false;
       break;
     case 'paused':
-      btnGenerate.innerHTML = '<span>▶</span> Resume';
-      btnGenerate.disabled = false;
-      btnStop.disabled = false;
+      if (btnExtractArticle) {
+        btnExtractArticle.innerHTML = `${playIcon} <span>Resume</span>`;
+        btnExtractArticle.disabled = false;
+      }
+      if (btnGenerate) {
+        btnGenerate.innerHTML = `${playIcon} <span>Resume</span>`;
+        btnGenerate.disabled = false;
+      }
+      if (btnStop) btnStop.disabled = false;
       break;
   }
 }

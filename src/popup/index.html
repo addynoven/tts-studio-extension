@@ -6,106 +6,172 @@
   <title>TTS Studio</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="./styles/main.css" />
 </head>
 <body data-model="kokoro">
 
   <!-- Header -->
   <header class="header">
-    <div class="logo">
-      <div class="logo-icon" id="logoIcon">🎙️</div>
-      <span class="logo-text">TTS <span id="logoAccent">Studio</span></span>
+    <div class="brand">
+      <div class="brand-mark">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+          <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+        </svg>
+      </div>
+      <div class="brand-name">TTS Studio</div>
+      <span class="offline-badge">Offline</span>
     </div>
-    <span class="header-badge">100% OFFLINE</span>
-    <div style="display:flex; align-items:center; gap: 4px;">
-      <button id="btnOptions" title="Open Settings Workstation" style="background:none;border:none;cursor:pointer;font-size:13px;opacity:0.6;padding:2px 4px;border-radius:4px;">⚙️</button>
-      <button id="btnDebug" title="Toggle debug panel" style="background:none;border:none;cursor:pointer;font-size:13px;opacity:0.5;padding:2px 4px;border-radius:4px;">🐛</button>
+    <div class="header-actions">
+      <button class="icon-btn" id="btnOptions" title="Settings Workstation" aria-label="Settings">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+        </svg>
+      </button>
+      <button class="icon-btn" id="btnDebug" title="Diagnostics Console" aria-label="Debug">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="4 17 10 11 4 5"></polyline>
+          <line x1="12" y1="19" x2="20" y2="19"></line>
+        </svg>
+      </button>
     </div>
   </header>
 
-  <!-- Model tabs -->
-  <nav class="model-tabs">
-    <button class="model-tab active" data-model="kokoro">
-      <span class="tab-emoji">💎</span>
-      <span class="tab-name">Kokoro</span>
-      <span class="tab-size">Neural AI · Studio</span>
-    </button>
-    <button class="model-tab" data-model="native">
-      <span class="tab-emoji">⚡</span>
-      <span class="tab-name">Instant</span>
-      <span class="tab-size">Native OS · 0ms</span>
-    </button>
-  </nav>
-
-  <!-- Controls -->
-  <div class="controls">
-    <div class="control-row">
-      <span class="control-label">Voice</span>
-      <select id="voiceSelect"></select>
-    </div>
-    <div class="control-row">
-      <span class="control-label">Speed</span>
-      <div class="speed-wrap">
-        <input type="range" id="speedSlider" min="0.5" max="2.0" step="0.05" value="1.0" />
-        <span class="speed-val" id="speedVal">1.0×</span>
+  <main class="popup-content">
+    <!-- Hero: Active Page & Reader Transport -->
+    <section class="page-deck" id="pageDeck">
+      <div class="deck-top">
+        <span class="deck-domain" id="deckDomain">Active Tab</span>
+        <span class="deck-stats" id="deckStats">Ready</span>
       </div>
-    </div>
-    <div class="control-row">
-      <span class="control-label">GPU</span>
-      <div class="toggle-wrap">
-        <div class="toggle on" id="gpuToggle" title="WebGPU acceleration (RTX / Hardware GPU)"></div>
-        <span class="toggle-label">WebGPU (Hardware GPU)</span>
+      <div class="deck-title" id="deckTitle">Loading article context…</div>
+      
+      <div class="deck-actions">
+        <button class="btn btn-primary" id="btnExtractArticle" title="Read current web page aloud">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+            <polygon points="5 3 19 12 5 21 5 3"></polygon>
+          </svg>
+          <span id="btnExtractArticleLabel">Read Article</span>
+        </button>
+        <button class="btn btn-secondary" id="btnSelected" title="Read highlighted text on page">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+            <line x1="16" y1="13" x2="8" y2="13"></line>
+            <line x1="16" y1="17" x2="8" y2="17"></line>
+          </svg>
+          <span>Selection</span>
+        </button>
+        <button class="btn btn-stop" id="btnStop" disabled title="Stop playback">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+            <rect x="5" y="5" width="14" height="14" rx="2"></rect>
+          </svg>
+        </button>
       </div>
-    </div>
-  </div>
+    </section>
 
-  <!-- Text input -->
-  <div class="textarea-wrap">
-    <textarea id="textInput" placeholder="Type or paste text to synthesize…" spellcheck="false"></textarea>
-    <div class="char-count"><span id="charCount">0</span> chars</div>
-  </div>
+    <!-- Engine Segmented Tabs -->
+    <section class="section-segmented">
+      <nav class="model-tabs">
+        <button class="model-tab active" data-model="kokoro">
+          <span class="model-tab-label">Kokoro Neural</span>
+          <span class="model-tab-sub">WebGPU · 82M</span>
+        </button>
+        <button class="model-tab" data-model="native">
+          <span class="model-tab-label">Instant OS</span>
+          <span class="model-tab-sub">Native · 0ms</span>
+        </button>
+      </nav>
+    </section>
 
-  <!-- Actions -->
-  <div class="actions" style="display:flex; gap: 4px;">
-    <button class="btn btn-ghost" id="btnSelected" title="Use selected text from active tab" style="padding: 6px 8px; font-size: 11px;">📋 Selected</button>
-    <button class="btn btn-ghost" id="btnExtractArticle" title="Extract article text from active tab" style="padding: 6px 8px; font-size: 11px;">📄 Article</button>
-    <button class="btn btn-primary" id="btnGenerate" style="flex: 1;"><span>▶</span> Generate</button>
-    <button class="btn btn-stop" id="btnStop" disabled>⏹</button>
-  </div>
-
-  <!-- Extraction Debug Panel (Hidden by default) -->
-  <div class="extraction-panel" id="extractionPanel" style="display: none; margin-top: 10px; border: 1px solid #333; border-radius: 6px; padding: 10px; background: #111;">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-      <h3 style="margin: 0; font-size: 12px; color: #aaa;">Extracted Text (<span id="extractBlockCount">0</span> blocks)</h3>
-      <div style="display: flex; gap: 5px;">
-        <button id="btnCopyExtract" style="background: #222; border: 1px solid #444; color: #fff; padding: 2px 6px; border-radius: 4px; font-size: 11px; cursor: pointer;">Copy</button>
-        <button id="btnCloseExtract" style="background: #222; border: 1px solid #444; color: #fff; padding: 2px 6px; border-radius: 4px; font-size: 11px; cursor: pointer;">Close</button>
+    <!-- Quick Settings Matrix -->
+    <section class="controls-card">
+      <!-- Voice -->
+      <div class="control-row">
+        <label class="control-label" for="voiceSelect">Voice</label>
+        <div class="select-wrap">
+          <select id="voiceSelect"></select>
+        </div>
       </div>
-    </div>
-    <textarea id="extractResultText" readonly style="width: 100%; height: 150px; background: #000; color: #fff; border: 1px solid #333; padding: 6px; font-family: monospace; font-size: 11px; resize: vertical; box-sizing: border-box;"></textarea>
-  </div>
 
-  <!-- Status -->
-  <div class="status-bar">
-    <div class="status-dot" id="statusDot"></div>
-    <div style="flex:1; overflow:hidden;">
-      <div class="status-text" id="statusText">Ready — select a model and generate</div>
-      <div class="progress-wrap" id="progressWrap">
-        <div class="progress-fill indeterminate" id="progressFill"></div>
+      <!-- Speed Multipliers -->
+      <div class="control-row speed-row">
+        <label class="control-label">Speed</label>
+        <div class="speed-deck">
+          <div class="speed-pills" id="speedPills">
+            <button type="button" class="speed-pill" data-speed="0.75">0.75×</button>
+            <button type="button" class="speed-pill active" data-speed="1.0">1.0×</button>
+            <button type="button" class="speed-pill" data-speed="1.25">1.25×</button>
+            <button type="button" class="speed-pill" data-speed="1.5">1.5×</button>
+            <button type="button" class="speed-pill" data-speed="2.0">2.0×</button>
+          </div>
+          <div class="speed-fine">
+            <input type="range" id="speedSlider" min="0.5" max="2.5" step="0.05" value="1.0" aria-label="Speaking Speed" />
+            <span class="speed-val" id="speedVal">1.0×</span>
+          </div>
+        </div>
       </div>
+
+      <!-- WebGPU Hardware Toggle -->
+      <div class="control-row gpu-row">
+        <span class="control-label">GPU</span>
+        <div class="toggle-wrap">
+          <div class="toggle on" id="gpuToggle" role="switch" aria-checked="true" tabindex="0"></div>
+          <span class="toggle-label">Hardware Acceleration (WebGPU)</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Collapsible Scratchpad Accordion -->
+    <details class="scratchpad-accordion">
+      <summary class="scratchpad-summary">
+        <span>Custom Text Scratchpad</span>
+        <svg class="chevron-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="6 9 12 15 18 9"></polyline>
+        </svg>
+      </summary>
+      <div class="scratchpad-body">
+        <div class="textarea-wrap">
+          <textarea id="textInput" placeholder="Type or paste custom text to synthesize…" spellcheck="false"></textarea>
+          <div class="char-count"><span id="charCount">0</span> characters</div>
+        </div>
+        <div class="scratchpad-actions">
+          <button class="btn btn-primary" id="btnGenerate">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+              <polygon points="5 3 19 12 5 21 5 3"></polygon>
+            </svg>
+            <span id="btnGenerateLabel">Synthesize Text</span>
+          </button>
+        </div>
+      </div>
+    </details>
+  </main>
+
+  <!-- Status Bar -->
+  <footer class="status-bar">
+    <div class="status-indicator">
+      <div class="status-dot" id="statusDot"></div>
+      <span class="status-text" id="statusText">Ready</span>
     </div>
-    <button class="btn-copy" id="btnCopyStatus" title="Copy status message">📋</button>
+    <div class="progress-wrap" id="progressWrap">
+      <div class="progress-fill indeterminate" id="progressFill"></div>
+    </div>
     <div class="waveform" id="waveform">
       <div class="waveform-bar"></div>
       <div class="waveform-bar"></div>
       <div class="waveform-bar"></div>
       <div class="waveform-bar"></div>
       <div class="waveform-bar"></div>
-      <div class="waveform-bar"></div>
-      <div class="waveform-bar"></div>
     </div>
-  </div>
+    <button class="btn-copy" id="btnCopyStatus" title="Copy status message" aria-label="Copy status">
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+      </svg>
+    </button>
+  </footer>
 
   <script type="module" src="./index.js"></script>
 </body>
