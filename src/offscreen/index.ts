@@ -94,13 +94,28 @@ async function loadViaWorker(model: string, useGPU = false): Promise<void> {
   }
 }
 
+function terminateWorker(): void {
+  if (worker) {
+    try {
+      worker.terminate();
+    } catch {}
+    worker = null;
+  }
+  for (const [id, p] of pending.entries()) {
+    p.reject(new Error('Worker terminated'));
+  }
+  pending.clear();
+}
+
 async function inferViaWorker(model: string, text: string, voice: string, speed: number): Promise<TTSResult> {
   try {
     const res = await postToWorker('infer', { model, text, voice, speed });
     return res as TTSResult;
   } catch (e) {
-    log('offscreen', 'warn', 'Worker infer failed, falling back to direct:', (e as Error).stack || (e as Error).message);
-    return await generateAudio(model, text, voice, speed);
+    log('offscreen', 'error', 'Worker infer failed:', (e as Error).message);
+    // If worker crashes from Vulkan/WebGPU memory exhaustion, terminate it to force Dawn to free GPU buffers!
+    terminateWorker();
+    throw e;
   }
 }
 
@@ -122,8 +137,10 @@ function toContent(type: string, extra: Record<string, unknown> = {}): void {
 
 let chunkTexts: string[] = [];
 let hasAnnouncedPlaying = false;
+let currentGenerationId = 0;
 
 interface ManualPlaybackState {
+  generationId: number;
   active: boolean;
   isPaused: boolean;
   sentences: string[];
@@ -141,6 +158,7 @@ interface ManualPlaybackState {
 }
 
 const pb: ManualPlaybackState = {
+  generationId: 0,
   active: false,
   isPaused: false,
   sentences: [],
@@ -409,6 +427,7 @@ chrome.runtime.onMessage.addListener((message) => {
 
   if (message.type === MSG.TTS_STOP) {
     log('offscreen', 'log', 'Stop requested');
+    currentGenerationId++;
     if (stream.active) {
       stopStream();
       toContent(MSG.STATUS_DONE);
@@ -596,6 +615,10 @@ async function handleGenerate({ text, model, voice, speed, useGPU }: {
   log('offscreen', 'log', 'Model:', model, '| Voice:', voice, '| Speed:', speed, '| GPU:', useGPU);
   log('offscreen', 'log', 'Text length:', text.length, 'chars');
 
+  currentGenerationId++;
+  const genId = currentGenerationId;
+
+  pb.generationId = genId;
   pb.active = true;
   pb.isPaused = false;
   pb.completedCount = 0;
@@ -700,6 +723,7 @@ function checkSynthesisDone(): void {
 }
 
 function startSynthesisPump(): void {
+  const genId = pb.generationId;
   while (pb.runningCount < 1 && pb.nextIndex < pb.totalChunks && !pb.isPaused && pb.active) {
     const index = pb.nextIndex++;
     pb.runningCount++;
@@ -708,8 +732,9 @@ function startSynthesisPump(): void {
     setPhase('generating', { model: pb.model, currentChunk: index, totalChunks: pb.totalChunks });
     log('offscreen', 'log', `Chunk[${index}] synthesizing...`);
 
-    synthesizeChunk(index, label)
+    synthesizeChunk(index, label, genId)
       .then(() => {
+        if (pb.generationId !== genId || !pb.active) return;
         pb.runningCount--;
         pb.completedCount++;
         setQueueState({ completedChunks: pb.completedCount });
@@ -720,6 +745,7 @@ function startSynthesisPump(): void {
         }
       })
       .catch((e: Error) => {
+        if (pb.generationId !== genId || !pb.active) return;
         pb.runningCount--;
         pb.errorCount++;
         log('offscreen', 'error', `Chunk[${index}] failed:`, e.message);
@@ -733,10 +759,14 @@ function startSynthesisPump(): void {
   }
 }
 
-async function synthesizeChunk(index: number, label: string): Promise<void> {
+async function synthesizeChunk(index: number, label: string, genId: number): Promise<void> {
   const chunkText = pb.sentences[index];
   const startTime = performance.now();
   const inferRes = await inferViaWorker(pb.model, chunkText, pb.voice, pb.speed);
+  if (pb.generationId !== genId || !pb.active) {
+    log('offscreen', 'log', `Chunk[${index}] discarded due to aborted generation`);
+    return;
+  }
   const { audio, sampleRate, playbackRate } = inferRes;
   const elapsed = Math.round(performance.now() - startTime);
   recordTiming(`chunk_${index}`, elapsed);

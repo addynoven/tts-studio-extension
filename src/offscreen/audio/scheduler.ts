@@ -182,10 +182,11 @@ function tryScheduleNext(): void {
     }
 
     const { buffer, playbackRate, semanticId, wordTimings } = entry;
+    const rate = currentPlaybackRate > 0 && currentPlaybackRate !== 1.0 ? currentPlaybackRate : playbackRate;
     const source = context.createBufferSource();
     source.buffer = buffer;
-    if (playbackRate !== 1.0) {
-      source.playbackRate.value = playbackRate;
+    if (rate !== 1.0) {
+      source.playbackRate.value = rate;
     }
     source.connect(context.destination);
 
@@ -201,7 +202,7 @@ function tryScheduleNext(): void {
       checkCompletion();
     };
 
-    const effectiveDuration = buffer.duration / playbackRate;
+    const effectiveDuration = buffer.duration / rate;
     const endTime = nextStartTime + effectiveDuration;
     const idx = nextPlayIndex;
     const start = nextStartTime;
