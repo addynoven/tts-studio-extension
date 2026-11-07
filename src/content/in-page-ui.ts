@@ -315,11 +315,20 @@ export function showMiniPlayer(): void {
   document.body.appendChild(miniPlayerEl);
 }
 
+export function setCurrentSpeed(speed: number): void {
+  if (typeof speed === 'number' && !Number.isNaN(speed) && speed > 0) {
+    currentSpeed = speed;
+    if (miniPlayerEl) {
+      renderMiniPlayerContent();
+    }
+  }
+}
+
 export function updateMiniPlayerState(state: { isPlaying?: boolean; speed?: number }): void {
   if (typeof state.isPlaying === 'boolean') {
     isPlayingState = state.isPlaying;
   }
-  if (typeof state.speed === 'number') {
+  if (typeof state.speed === 'number' && !Number.isNaN(state.speed) && state.speed > 0) {
     currentSpeed = state.speed;
   }
   if (miniPlayerEl) {
@@ -379,7 +388,8 @@ function renderMiniPlayerContent(): void {
 
   const speedBadge = miniPlayerEl.querySelector('.tts-studio-speed-badge');
   speedBadge?.addEventListener('click', () => {
-    const curIdx = SPEEDS.indexOf(currentSpeed);
+    let curIdx = SPEEDS.findIndex(s => Math.abs(s - currentSpeed) < 0.05);
+    if (curIdx === -1) curIdx = SPEEDS.indexOf(1.0);
     const nextIdx = (curIdx + 1) % SPEEDS.length;
     currentSpeed = SPEEDS[nextIdx];
     safeExecute(() => callbacks?.onSpeedChange(currentSpeed));

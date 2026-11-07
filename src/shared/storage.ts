@@ -122,6 +122,35 @@ export async function updateSettings(partial: Partial<Settings>): Promise<void> 
   await setSettings({ ...current, ...partial });
 }
 
+export type SettingsChangeCallback = (newSettings: Settings, changedKeys: string[]) => void;
+
+/**
+ * Subscribe to settings changes across any extension context (popup, content, background, offscreen).
+ * Automatically reacts when speed, voice, model, or other settings change.
+ * Returns an unsubscribe cleanup function.
+ */
+export function onSettingsChanged(callback: SettingsChangeCallback): () => void {
+  if (typeof chrome === 'undefined' || !chrome.storage?.onChanged) {
+    return () => {};
+  }
+  const listener = (changes: { [key: string]: chrome.storage.StorageChange }, areaName: string) => {
+    if (areaName === 'local') {
+      const keys = Object.keys(changes);
+      if (keys.some(k => k === 'settings' || k === 'speed' || k === 'voice' || k === 'model' || k === 'gpu')) {
+        getSettings().then((currentSettings) => {
+          callback(currentSettings, keys);
+        }).catch(() => {});
+      }
+    }
+  };
+  chrome.storage.onChanged.addListener(listener);
+  return () => {
+    try {
+      chrome.storage.onChanged.removeListener(listener);
+    } catch {}
+  };
+}
+
 // ── Playback State (session-scoped) ────────────────────────────────────────
 
 export async function getPlayback(): Promise<Playback> {

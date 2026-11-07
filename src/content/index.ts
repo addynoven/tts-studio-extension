@@ -7,8 +7,8 @@ import { MSG } from '../shared/constants.js';
 import { extractSelection } from './extractor/index.js';
 import { extractMappedArticle, BlockIterator, type ExtractedBlock } from './extractor/dom-mapper.js';
 import { highlightSentence, highlightElement, highlightWord, clearAll, setMappedBlocks, setHighlightRoot } from './highlighter.js';
-import { initInPageUI, showMiniPlayer, updateMiniPlayerState, hideMiniPlayer, showReloadToast, teardownInPageUI } from './in-page-ui.js';
-import { getSettings, updateSettings } from '../shared/storage.js';
+import { initInPageUI, showMiniPlayer, updateMiniPlayerState, hideMiniPlayer, showReloadToast, teardownInPageUI, setCurrentSpeed } from './in-page-ui.js';
+import { getSettings, updateSettings, onSettingsChanged } from '../shared/storage.js';
 import { isExtensionValid } from '../shared/messaging.js';
 import { log } from '../shared/logger.js';
 
@@ -101,6 +101,20 @@ initInPageUI({
   onSpeedChange: (speed: number) => {
     if (!isExtensionValid()) return;
     updateSettings({ defaultSpeed: speed }).catch(() => {});
+    safeSendBackground(MSG.TTS_SPEED_CHANGE, { speed });
+  }
+});
+
+// Sync initial speed from unified settings and listen for reactive updates
+getSettings().then((settings) => {
+  if (typeof settings.defaultSpeed === 'number') {
+    setCurrentSpeed(settings.defaultSpeed);
+  }
+}).catch(() => {});
+
+onSettingsChanged((newSettings) => {
+  if (typeof newSettings.defaultSpeed === 'number') {
+    setCurrentSpeed(newSettings.defaultSpeed);
   }
 });
 

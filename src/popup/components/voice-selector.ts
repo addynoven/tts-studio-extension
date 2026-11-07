@@ -59,6 +59,15 @@ export function getSelectedVoice(): string {
 }
 
 /**
+ * Programmatically update voice dropdown selection.
+ */
+export function setSelectedVoice(voiceId: string): void {
+  if (voiceSelect && Array.from(voiceSelect.options).some(o => o.value === voiceId)) {
+    voiceSelect.value = voiceId;
+  }
+}
+
+/**
  * Listen for voice changes.
  */
 export function onVoiceChange(callback: (voice: string) => void): void {

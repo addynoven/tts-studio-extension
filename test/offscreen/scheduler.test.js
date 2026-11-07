@@ -4,7 +4,9 @@ import {
   enqueuePause,
   resetScheduler,
   getSchedulerState,
-  createAudioBuffer
+  createAudioBuffer,
+  setPlaybackRate,
+  getPlaybackRate
 } from '../../src/offscreen/audio/scheduler.js';
 
 // Mock AudioContext for jsdom
@@ -26,6 +28,7 @@ class MockBufferSource {
     this.buffer = null;
     this._connected = null;
     this._startTime = null;
+    this.playbackRate = { value: 1.0 };
   }
   connect(dest) { this._connected = dest; }
   start(when) { this._startTime = when; }
@@ -126,6 +129,20 @@ describe('scheduler', () => {
       expect(state.queueSize).toBe(0);
       expect(state.nextPlayIndex).toBe(0);
       expect(state.nextStartTime).toBe(0);
+    });
+  });
+
+  describe('setPlaybackRate', () => {
+    it('updates current playback rate', () => {
+      setPlaybackRate(1.25);
+      expect(getPlaybackRate()).toBe(1.25);
+    });
+
+    it('clamps invalid rates within bounds', () => {
+      setPlaybackRate(0.1);
+      expect(getPlaybackRate()).toBe(0.25);
+      setPlaybackRate(5.0);
+      expect(getPlaybackRate()).toBe(4.0);
     });
   });
 

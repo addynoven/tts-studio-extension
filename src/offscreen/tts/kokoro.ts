@@ -54,44 +54,92 @@ export function configureWasmPaths(customPath?: string): void {
   env.allowLocalModels = false;
 }
 
-let activeTensorsToDispose: Array<{ dispose?: () => void }> = [];
-
 /**
- * Intercepts Kokoro's underlying ONNX model execution to capture input and output tensors
- * so they can be explicitly disposed immediately after audio extraction.
- * This prevents WebGPU buffer leakage and Vulkan VK_ERROR_OUT_OF_DEVICE_MEMORY.
+ * Intercepts Kokoro's generate_from_ids and underlying model call to capture and immediately
+ * dispose all WebGPU input and output tensors (input_ids, style, speed, waveform).
+ * This completely prevents WebGPU buffer leakage and Vulkan VK_ERROR_OUT_OF_DEVICE_MEMORY.
  */
 function hookKokoroModel(instance: KokoroTTS): void {
-  const model = (instance as unknown as {
-    model?: {
-      _call?: (inputs: Record<string, unknown>) => Promise<Record<string, unknown>>;
-      _isDisposalHooked?: boolean;
-    };
-  }).model;
+  const tts = instance as any;
+  if (!tts || tts._isDisposalHooked) return;
 
-  if (!model || typeof model._call !== 'function' || model._isDisposalHooked) return;
+  const origGenerateFromIds = tts.generate_from_ids?.bind(tts);
+  if (typeof origGenerateFromIds !== 'function') return;
 
-  const origCall = model._call;
-  model._call = async function (modelInputs: Record<string, unknown>) {
-    if (modelInputs && typeof modelInputs === 'object') {
-      for (const val of Object.values(modelInputs)) {
-        if (val && typeof (val as { dispose?: () => void }).dispose === 'function') {
-          activeTensorsToDispose.push(val as { dispose?: () => void });
+  tts.generate_from_ids = async function (inputIds: any, options: any) {
+    const tensorsToDispose: Array<{ dispose?: () => void }> = [];
+    if (inputIds && typeof inputIds.dispose === 'function') {
+      tensorsToDispose.push(inputIds);
+    }
+
+    const origModel = this.model;
+    if (typeof origModel === 'function') {
+      this.model = async function (modelInputs: any) {
+        if (modelInputs && typeof modelInputs === 'object') {
+          for (const val of Object.values(modelInputs)) {
+            if (val && typeof (val as { dispose?: () => void }).dispose === 'function') {
+              tensorsToDispose.push(val as { dispose?: () => void });
+            }
+          }
+        }
+        const output = await origModel.call(this, modelInputs);
+        if (output && typeof output === 'object') {
+          for (const val of Object.values(output)) {
+            if (val && typeof (val as { dispose?: () => void }).dispose === 'function') {
+              tensorsToDispose.push(val as { dispose?: () => void });
+            }
+          }
+        }
+        return output;
+      };
+    }
+
+    try {
+      return await origGenerateFromIds(inputIds, options);
+    } finally {
+      if (typeof origModel === 'function') {
+        this.model = origModel;
+      }
+      for (const tensor of tensorsToDispose) {
+        try {
+          tensor.dispose?.();
+        } catch {
+          // Silently ignore if already disposed
         }
       }
     }
-    const output = await origCall.apply(this, [modelInputs]);
-    if (output && typeof output === 'object') {
-      for (const val of Object.values(output)) {
-        if (val && typeof (val as { dispose?: () => void }).dispose === 'function') {
-          activeTensorsToDispose.push(val as { dispose?: () => void });
-        }
-      }
-    }
-    return output;
   };
 
-  model._isDisposalHooked = true;
+  tts._isDisposalHooked = true;
+}
+
+/**
+ * Detect empty, silent, or corrupted audio output from WebGPU OOM or Dawn validation failures.
+ * Returns true if audio is NaN, Infinite, zeroed, or has negligible amplitude throughout.
+ */
+function isAudioCorruptedOrSilent(audio: Float32Array): boolean {
+  if (!audio || audio.length === 0) return true;
+
+  let maxAmp = 0;
+  let nonZeroCount = 0;
+  const step = Math.max(1, Math.floor(audio.length / 500));
+
+  for (let i = 0; i < audio.length; i += step) {
+    const val = audio[i];
+    if (!Number.isFinite(val)) {
+      return true; // NaN or Infinity
+    }
+    const abs = Math.abs(val);
+    if (abs > maxAmp) maxAmp = abs;
+    if (abs > 1e-4) nonZeroCount++;
+  }
+
+  // Pure zero or silent buffer check (max amplitude < 1e-5)
+  if (maxAmp < 1e-5 || nonZeroCount === 0) {
+    return true;
+  }
+
+  return false;
 }
 
 export interface WordTiming {
@@ -173,8 +221,6 @@ export async function generateKokoro(
     throw new Error('Failed to initialize KokoroTTS');
   }
 
-  activeTensorsToDispose = [];
-
   try {
     const rawAudio = await kokoroInstance.generate(text, {
       voice: voice as unknown as Parameters<typeof kokoroInstance.generate>[1] extends { voice?: infer V } ? V : never,
@@ -182,8 +228,14 @@ export async function generateKokoro(
     });
 
     const sampleRate = rawAudio.sampling_rate || 24000;
-    // Detach and clone audio data into a new Float32Array in CPU memory before GPU tensor disposal
+    // Detach and clone audio data into a new Float32Array in CPU memory
     const audioData = new Float32Array(rawAudio.audio);
+
+    // Sanity check: verify output is not empty/silent/corrupted from an async WebGPU OOM
+    if (isAudioCorruptedOrSilent(audioData)) {
+      throw new Error(`Synthesized audio buffer is silent or corrupted (${audioData.length} samples, possible WebGPU VRAM exhaustion)`);
+    }
+
     const duration = audioData.length / sampleRate;
 
     // Compute character/syllable-weighted word boundary timings
@@ -198,30 +250,22 @@ export async function generateKokoro(
     };
   } catch (err) {
     const errMsg = (err as Error)?.message || String(err);
-    // Self-healing fallback: If WebGPU VRAM exhausts or encounters an invalid buffer error mid-generation,
+    // Self-healing fallback: If WebGPU VRAM exhausts or encounters corrupted/silent output mid-generation,
     // immediately recover onto CPU WASM using system RAM without halting playback.
     if (currentDevice === 'webgpu' && (
       errMsg.includes('OUT_OF_DEVICE_MEMORY') ||
       errMsg.includes('Invalid Buffer') ||
       errMsg.includes('WebGPU') ||
-      errMsg.includes('device lost')
+      errMsg.includes('device lost') ||
+      errMsg.includes('silent or corrupted') ||
+      errMsg.includes('Vulkan')
     )) {
-      console.warn('[KokoroTTS] WebGPU memory error encountered. Automatically recovering on WASM q8:', errMsg);
+      console.warn('[KokoroTTS] WebGPU memory error or corrupted output. Automatically recovering on WASM q8:', errMsg);
       releaseKokoro();
       await loadKokoro(null, false);
       return await generateKokoro(text, voice, speed);
     }
     throw err;
-  } finally {
-    // Explicitly dispose all WebGPU tensors (input_ids, style, speed, waveform) to prevent VRAM accumulation
-    for (const tensor of activeTensorsToDispose) {
-      try {
-        tensor.dispose?.();
-      } catch {
-        // Silently ignore if already disposed
-      }
-    }
-    activeTensorsToDispose = [];
   }
 }
 

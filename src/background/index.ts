@@ -172,6 +172,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     stopNative();
   }
 
+  if (message.type === MSG.TTS_SPEED_CHANGE) {
+    sendToOffscreen({ target: 'offscreen', type: MSG.TTS_SPEED_CHANGE, speed: message.speed });
+    return false;
+  }
+
   if (message.type === MSG.TTS_TOGGLE_PLAYBACK) {
     if (isNativeSpeaking()) {
       pauseNative();

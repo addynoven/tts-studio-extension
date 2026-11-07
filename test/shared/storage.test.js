@@ -1,8 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   getSettings,
   setSettings,
   updateSettings,
+  onSettingsChanged,
   getPlayback,
   setPlayback,
   getHistory,
@@ -111,6 +112,17 @@ describe('storage', () => {
       await clearHistory();
       const history = await getHistory();
       expect(history).toEqual([]);
+    });
+  });
+
+  describe('onSettingsChanged', () => {
+    it('registers and unregisters storage listener', () => {
+      const callback = vi.fn();
+      const unsubscribe = onSettingsChanged(callback);
+      expect(chrome.storage.onChanged.addListener).toHaveBeenCalled();
+
+      unsubscribe();
+      expect(chrome.storage.onChanged.removeListener).toHaveBeenCalled();
     });
   });
 

@@ -12,7 +12,7 @@ console.warn = (...args: unknown[]) => {
   _origConsoleWarn.apply(console, args);
 };
 
-import { MSG } from '../shared/constants.js';
+import { MSG, defaultVoiceForModel } from '../shared/constants.js';
 import {
   enqueueChunk,
   enqueuePause,
@@ -26,7 +26,8 @@ import {
   setTimingCallback,
   setWordTimingCallback,
   setPlaybackCompleteCallback,
-  setQueueDrained
+  setQueueDrained,
+  setPlaybackRate
 } from './audio/scheduler.js';
 import { loadModel, generateAudio, type TTSResult } from './tts/index.js';
 import { log } from '../shared/logger.js';
@@ -41,7 +42,7 @@ import {
   recordTiming,
   resetPhase
 } from '../shared/state-tracker.js';
-import { getSettings } from '../shared/storage.js';
+import { getSettings, onSettingsChanged } from '../shared/storage.js';
 
 // ── Web Worker for ONNX inference ──────────────────────────────────────────
 
@@ -266,6 +267,17 @@ chrome.runtime.onMessage.addListener((message) => {
     return;
   }
 
+  if (message.type === MSG.TTS_SPEED_CHANGE) {
+    const newSpeed = Number(message.speed);
+    if (!Number.isNaN(newSpeed) && newSpeed > 0) {
+      log('offscreen', 'log', 'Speed change requested:', newSpeed);
+      setPlaybackRate(newSpeed);
+      if (pb.active) pb.speed = newSpeed;
+      if (stream.active) stream.settings.speed = newSpeed;
+    }
+    return;
+  }
+
   if (message.type === MSG.TTS_BUFFER) {
     void handleStreamBuffer(message.block as StreamBlock);
     return;
@@ -416,7 +428,7 @@ async function handleStreamBuffer(block: StreamBlock): Promise<void> {
 
   log('offscreen', 'log', `Stream buffer received block ${block.index}, len=${block.text.length}`);
   const { splitTextIntoTTSChunks } = await import('../shared/sentence-splitter.js');
-  const subChunks = splitTextIntoTTSChunks(block.text, 180);
+  const subChunks = splitTextIntoTTSChunks(block.text, 140);
   for (const sub of subChunks) {
     stream.textBuffer.push({ index: block.index, text: sub });
   }
@@ -453,8 +465,8 @@ async function initStream(): Promise<void> {
 
   const settings = await getSettings();
   stream.settings = {
-    model: settings.defaultModel,
-    voice: settings.defaultVoice || '3922',
+    model: settings.defaultModel || 'kokoro',
+    voice: settings.defaultVoice || defaultVoiceForModel(settings.defaultModel || 'kokoro'),
     speed: Number(settings.defaultSpeed) || 1.0,
     useGPU: settings.executionProvider === 'webgpu'
   };
@@ -603,8 +615,8 @@ async function handleGenerate({ text, model, voice, speed, useGPU }: {
 
     setPhase('generating', { model, currentChunk: 0, totalChunks: 1 });
     const { splitTextIntoTTSChunks } = await import('../shared/sentence-splitter.js');
-    const chunks = splitTextIntoTTSChunks(text, 180);
-    log('offscreen', 'log', 'Split into', chunks.length, 'chunks (<=180 chars each)');
+    const chunks = splitTextIntoTTSChunks(text, 140);
+    log('offscreen', 'log', 'Split into', chunks.length, 'chunks (<=140 chars each)');
 
     if (chunks.length === 0) {
       log('offscreen', 'error', 'No chunks found in text');
@@ -615,7 +627,7 @@ async function handleGenerate({ text, model, voice, speed, useGPU }: {
       return;
     }
 
-    if (chunks.length === 1 && chunks[0].length <= 180) {
+    if (chunks.length === 1 && chunks[0].length <= 140) {
       log('offscreen', 'log', 'Single short chunk — direct synthesis');
       addTimelineItem({ label: 'Synthesize text', status: 'running' });
       const inferRes = await inferViaWorker(model, chunks[0], voice, speed);
@@ -761,3 +773,18 @@ function buildParagraphMap(originalText: string, chunks: string[]): Map<string, 
 log('offscreen', 'log', 'Offscreen document initialized');
 chrome.runtime.sendMessage({ target: 'background', type: MSG.OFFSCREEN_READY }).catch(() => {});
 console.log('[TTS Studio DEBUG] Offscreen READY message sent');
+
+// ── Live storage synchronization ──────────────────────────────────────────
+onSettingsChanged((newSettings) => {
+  const newSpeed = Number(newSettings.defaultSpeed);
+  if (!Number.isNaN(newSpeed) && newSpeed > 0) {
+    setPlaybackRate(newSpeed);
+    if (pb.active) pb.speed = newSpeed;
+    if (stream.active) stream.settings.speed = newSpeed;
+  }
+  if (stream.active) {
+    if (newSettings.defaultVoice) stream.settings.voice = newSettings.defaultVoice;
+    if (newSettings.defaultModel) stream.settings.model = newSettings.defaultModel;
+    stream.settings.useGPU = newSettings.executionProvider === 'webgpu';
+  }
+});

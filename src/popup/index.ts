@@ -5,14 +5,14 @@
 
 import { MSG } from '../shared/constants.js';
 import { initModelTabs, setActiveModel, getActiveModel } from './components/model-tabs.js';
-import { populateVoices, getSelectedVoice, onVoiceChange } from './components/voice-selector.js';
-import { initSpeedControl, getSpeed } from './components/speed-control.js';
+import { populateVoices, getSelectedVoice, setSelectedVoice, onVoiceChange } from './components/voice-selector.js';
+import { initSpeedControl, getSpeed, setSpeed } from './components/speed-control.js';
 import { setStatus, updateProgress, initCopyButton } from './components/status-bar.js';
 import { createDebugPanel, toggleDebugPanel, addLog } from './components/debug-panel.js';
 import { setModuleStatus, setPhase, recordError } from '../shared/state-tracker.js';
 import { log } from '../shared/logger.js';
 import type { LogEntry } from '../shared/logger.js';
-import { getSettings, updateSettings } from '../shared/storage.js';
+import { getSettings, updateSettings, onSettingsChanged } from '../shared/storage.js';
 
 // ── DOM refs ───────────────────────────────────────────────────────────────
 
@@ -83,6 +83,21 @@ async function init(): Promise<void> {
   // Speed
   initSpeedControl(settings.defaultSpeed || 1.0, async (speed) => {
     await updateSettings({ defaultSpeed: speed });
+    chrome.runtime.sendMessage({ target: 'offscreen', type: MSG.TTS_SPEED_CHANGE, speed }).catch(() => {});
+  });
+
+  // Listen for real-time external settings changes (e.g. from in-page mini player or options page)
+  onSettingsChanged((newSettings) => {
+    if (typeof newSettings.defaultSpeed === 'number' && Math.abs(newSettings.defaultSpeed - getSpeed()) > 0.01) {
+      setSpeed(newSettings.defaultSpeed);
+    }
+    if (newSettings.defaultVoice && newSettings.defaultVoice !== getSelectedVoice()) {
+      setSelectedVoice(newSettings.defaultVoice);
+    }
+    if (newSettings.defaultModel && newSettings.defaultModel !== getActiveModel()) {
+      setActiveModel(newSettings.defaultModel);
+      void populateVoices(newSettings.defaultModel, newSettings.defaultVoice);
+    }
   });
 
   // GPU toggle

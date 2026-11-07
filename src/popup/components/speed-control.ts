@@ -31,3 +31,13 @@ function updateDisplay(v: number): void {
 export function getSpeed(): number {
   return parseFloat(speedSlider.value);
 }
+
+/**
+ * Programmatically update speed slider and label.
+ */
+export function setSpeed(v: number): void {
+  if (speedSlider && !Number.isNaN(v) && v > 0) {
+    speedSlider.value = String(v);
+    updateDisplay(v);
+  }
+}

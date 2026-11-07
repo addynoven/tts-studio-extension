@@ -91,10 +91,10 @@ function splitLongSentence(sentence: string, maxLen: number): string[] {
 }
 
 /**
- * Split text into individual sentences and natural clause chunks under maxChars (default 180).
+ * Split text into individual sentences and natural clause chunks under maxChars (default 140).
  * Prevents dynamic shape VRAM exhaustion on WebGPU vocoders and provides smooth highlighting.
  */
-export function splitTextIntoTTSChunks(text: string, maxChars = 180): string[] {
+export function splitTextIntoTTSChunks(text: string, maxChars = 140): string[] {
   if (!text) return [];
   const sentences = splitIntoSentences(text);
   const chunks: string[] = [];
