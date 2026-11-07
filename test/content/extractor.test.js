@@ -176,5 +176,21 @@ describe('extractor', () => {
       const notFound = iter.findBlockIndexByText('nonexistent random alien text');
       expect(notFound).toBe(-1);
     });
+
+    it('does not truncate articles on headings containing notes or metadata', () => {
+      document.body.innerHTML = `
+        <article>
+          <h2>Introduction</h2>
+          <p>This is the start of the documentation.</p>
+          <h2>Notes on Implementation</h2>
+          <p>These are design notes that should be read aloud.</p>
+          <h2>Release Notes</h2>
+          <p>Detailed version release notes here.</p>
+        </article>
+      `;
+
+      const iter = new BlockIterator({}, document.body);
+      expect(iter.totalBlocks).toBe(6);
+    });
   });
 });

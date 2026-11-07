@@ -10,6 +10,7 @@ import { highlightSentence, highlightElement, highlightWord, clearAll, setMapped
 import { initInPageUI, showMiniPlayer, updateMiniPlayerState, hideMiniPlayer, showReloadToast, teardownInPageUI, setCurrentSpeed } from './in-page-ui.js';
 import { getSettings, updateSettings, onSettingsChanged } from '../shared/storage.js';
 import { isExtensionValid } from '../shared/messaging.js';
+import { splitIntoSentences } from '../shared/sentence-splitter.js';
 import { log } from '../shared/logger.js';
 
 log('content', 'log', 'Content script loaded on', location.hostname);
@@ -264,7 +265,28 @@ function handleExtractArticle(message: ContentMessage, sendResponse: (res: unkno
   sendResponse({ title, text: fullText, length: fullText.length });
 }
 
-function seekToBlock(targetIndex: number): void {
+function sliceTextFromSentenceOffset(ttsText: string, charOffset: number): string {
+  if (charOffset <= 0) return ttsText;
+  const sentences = splitIntoSentences(ttsText);
+  if (sentences.length <= 1) return ttsText;
+
+  let currentLen = 0;
+  let targetSentenceIndex = 0;
+
+  for (let i = 0; i < sentences.length; i++) {
+    const sLen = sentences[i].length;
+    if (charOffset <= currentLen + sLen) {
+      targetSentenceIndex = i;
+      break;
+    }
+    currentLen += sLen + 1;
+  }
+
+  const sliced = sentences.slice(targetSentenceIndex).join(' ');
+  return sliced.trim() || ttsText;
+}
+
+function seekToBlock(targetIndex: number, startCharOffset = 0): void {
   if (!streamIterator) return;
   const clampedIndex = Math.max(0, Math.min(targetIndex, streamIterator.totalBlocks - 1));
   currentBlockIndex = clampedIndex;
@@ -274,7 +296,11 @@ function seekToBlock(targetIndex: number): void {
 
   const block = streamIterator.next();
   if (block) {
-    sendBlockReady(block, streamIterator.cursor >= streamIterator.totalBlocks);
+    let textToSend = block.ttsText;
+    if (startCharOffset > 0) {
+      textToSend = sliceTextFromSentenceOffset(block.ttsText, startCharOffset);
+    }
+    sendBlockReady({ ...block, ttsText: textToSend }, streamIterator.cursor >= streamIterator.totalBlocks);
     showMiniPlayer();
     updateMiniPlayerState({ isPlaying: true });
   }
@@ -320,6 +346,8 @@ async function handleStreamStartFromSelection(selectionText?: string): Promise<v
 
   let iter = new BlockIterator();
   let startIndex = -1;
+  let charOffset = 0;
+
   if (anchorNode) {
     startIndex = iter.findBlockIndexByNode(anchorNode);
   }
@@ -336,21 +364,24 @@ async function handleStreamStartFromSelection(selectionText?: string): Promise<v
   }
 
   if (startIndex >= 0) {
+    const block = iter.getBlock(startIndex);
+    if (block?.el && selection && selection.rangeCount > 0) {
+      try {
+        const range = selection.getRangeAt(0);
+        if (block.el.contains(range.startContainer)) {
+          const preRange = document.createRange();
+          preRange.selectNodeContents(block.el);
+          preRange.setEnd(range.startContainer, range.startOffset);
+          charOffset = preRange.toString().length;
+        }
+      } catch {}
+    }
+
     clearAll();
     streamIterator = iter;
     streamActive = true;
-    streamIterator.seek(startIndex);
-    currentBlockIndex = startIndex;
-    safeSendBackground(MSG.STREAM_SEEK, { blockIndex: startIndex });
-
-    const block = streamIterator.next();
-    if (block) {
-      handleHighlightBlock(block.index);
-      sendBlockReady(block, streamIterator.cursor >= streamIterator.totalBlocks);
-      showMiniPlayer();
-      updateMiniPlayerState({ isPlaying: true });
-      return;
-    }
+    seekToBlock(startIndex, charOffset);
+    return;
   }
 
   // Fallback to one-off TTS_GENERATE if no readable block could be matched
@@ -394,13 +425,14 @@ function handleRequestBlock(message: ContentMessage, sendResponse: (res: unknown
   }
 
   const block = streamIterator.next();
-  const isLast = streamIterator.cursor >= streamIterator.totalBlocks;
+  const isLast = !block || streamIterator.cursor >= streamIterator.totalBlocks;
 
   if (block) {
     sendBlockReady(block, isLast);
     sendResponse({ ok: true, index: block.index, isLast });
   } else {
     streamActive = false;
+    safeSendBackground(MSG.STREAM_END);
     sendResponse({ ok: true, index: -1, isLast: true });
   }
 }
@@ -430,8 +462,13 @@ document.addEventListener('click', (e: MouseEvent) => {
   const target = e.target as HTMLElement | null;
   if (!target) return;
 
-  // Skip interactive UI elements
-  if (target.closest('a, button, input, textarea, select, option, label, [role="button"], .tts-studio-float-btn, .tts-mini-player, #tts-studio-root')) {
+  // Skip our own UI (floating button, mini player, toast, etc.)
+  if (target.closest('.tts-studio-float-btn, .tts-mini-player, #tts-studio-root, .tts-toast')) {
+    return;
+  }
+
+  // Skip interactive form elements
+  if (target.closest('input, textarea, select, option, [contenteditable="true"]')) {
     return;
   }
 
@@ -443,7 +480,37 @@ document.addEventListener('click', (e: MouseEvent) => {
 
   const clickedIndex = streamIterator.findBlockIndexByNode(target);
   if (clickedIndex >= 0) {
-    log('content', 'log', 'Click-to-seek jumped to block:', clickedIndex);
-    seekToBlock(clickedIndex);
+    // If clicking a link within the readable block while TTS is active, prevent navigation
+    if (target.closest('a')) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+
+    const block = streamIterator.getBlock(clickedIndex);
+    let charOffset = 0;
+
+    if (block?.el) {
+      try {
+        let range: Range | null = null;
+        if (typeof document.caretRangeFromPoint === 'function') {
+          range = document.caretRangeFromPoint(e.clientX, e.clientY);
+        } else if ((document as unknown as { caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } }).caretPositionFromPoint) {
+          const pos = (document as unknown as { caretPositionFromPoint: (x: number, y: number) => { offsetNode: Node; offset: number } }).caretPositionFromPoint(e.clientX, e.clientY);
+          if (pos) {
+            range = document.createRange();
+            range.setStart(pos.offsetNode, pos.offset);
+          }
+        }
+        if (range && block.el.contains(range.startContainer)) {
+          const preRange = document.createRange();
+          preRange.selectNodeContents(block.el);
+          preRange.setEnd(range.startContainer, range.startOffset);
+          charOffset = preRange.toString().length;
+        }
+      } catch {}
+    }
+
+    log('content', 'log', 'Click-to-seek jumped to block:', clickedIndex, 'charOffset:', charOffset);
+    seekToBlock(clickedIndex, charOffset);
   }
 }, true);

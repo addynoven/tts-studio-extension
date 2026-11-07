@@ -431,6 +431,9 @@ chrome.runtime.onMessage.addListener((message) => {
     resetScheduler();
     stream.textBuffer = [];
     stream.audioQueue = [];
+    if (typeof message.blockIndex === 'number') {
+      stream.currentBlockIndex = message.blockIndex;
+    }
     stream.synthesizing = false;
     stream.ended = false;
     stream.isPaused = false;
@@ -439,6 +442,15 @@ chrome.runtime.onMessage.addListener((message) => {
     hasAnnouncedPlaying = false;
     toPopup(MSG.STATUS_PLAYING);
     toContent(MSG.STATUS_PLAYING);
+    return;
+  }
+
+  if (message.type === MSG.STREAM_END) {
+    log('offscreen', 'log', 'STREAM_END received from content');
+    stream.ended = true;
+    if (stream.textBuffer.length === 0 && !stream.synthesizing) {
+      setQueueDrained(true);
+    }
     return;
   }
 
@@ -475,6 +487,7 @@ async function handleStreamBuffer(block: StreamBlock): Promise<void> {
   }
 
   log('offscreen', 'log', `Stream buffer received block ${block.index}, len=${block.text.length}`);
+  stream.currentBlockIndex = block.index;
   const { splitTextIntoTTSChunks } = await import('../shared/sentence-splitter.js');
   const subChunks = splitTextIntoTTSChunks(block.text, 140);
   for (const sub of subChunks) {
@@ -589,7 +602,7 @@ function requestNextBlock(): void {
   if (stream.ended) return;
   const nextIndex = stream.textBuffer.length > 0
     ? stream.textBuffer[stream.textBuffer.length - 1].index + 1
-    : stream.blockMap.size;
+    : stream.currentBlockIndex + 1;
   log('offscreen', 'log', 'Requesting next block:', nextIndex);
   toBackground(MSG.STATUS_NEED_BLOCK, { nextBlockIndex: nextIndex });
 }

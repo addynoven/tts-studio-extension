@@ -17,7 +17,7 @@ const SKIP_TAGS = new Set([
   'SELECT', 'TEXTAREA', 'LABEL'
 ]);
 
-const STOP_SECTIONS = /see also|references|external links|notes|further reading|bibliography|citations|help improve|contribute|page information|metadata/i;
+const STOP_SECTIONS = /^(?:see also|references|external links|further reading|bibliography|citations|sources)\s*$/i;
 
 export interface RawBlock {
   el: Element;

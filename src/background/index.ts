@@ -135,6 +135,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return false;
   }
 
+  // ── Streaming: STREAM_END from content → forward to offscreen ──
+  if (message.type === MSG.STREAM_END) {
+    log('bg', 'log', 'STREAM_END received, forwarding to offscreen');
+    sendToOffscreen({ target: 'offscreen', type: MSG.STREAM_END });
+    return false;
+  }
+
   // ── TTS Generation Routing ──
   if (message.type === MSG.TTS_GENERATE) {
     if (message.model === 'native') {
