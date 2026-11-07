@@ -310,10 +310,12 @@ chrome.runtime.onMessage.addListener((message) => {
         resumeScheduler();
         void streamSynthesisPump();
         toPopup(MSG.STATUS_PLAYING);
+        toContent(MSG.STATUS_PLAYING);
       } else {
         stream.isPaused = true;
         pauseScheduler();
         toPopup(MSG.STATUS_PAUSED);
+        toContent(MSG.STATUS_PAUSED);
       }
       return;
     }
@@ -324,11 +326,13 @@ chrome.runtime.onMessage.addListener((message) => {
         startSynthesisPump();
         setPhase('playing', { model: pb.model, totalChunks: pb.totalChunks });
         toPopup(MSG.STATUS_PLAYING);
+        toContent(MSG.STATUS_PLAYING);
       } else {
         pb.isPaused = true;
         pauseScheduler();
         setPhase('paused', { nextSentence: pb.nextIndex, total: pb.totalChunks });
         toPopup(MSG.STATUS_PAUSED);
+        toContent(MSG.STATUS_PAUSED);
       }
       return;
     }
@@ -341,6 +345,7 @@ chrome.runtime.onMessage.addListener((message) => {
       stream.isPaused = true;
       pauseScheduler();
       toPopup(MSG.STATUS_PAUSED);
+      toContent(MSG.STATUS_PAUSED);
       return;
     }
     if (!pb.isPaused && pb.active) {
@@ -348,6 +353,7 @@ chrome.runtime.onMessage.addListener((message) => {
       pauseScheduler();
       setPhase('paused', { nextSentence: pb.nextIndex, total: pb.totalChunks });
       toPopup(MSG.STATUS_PAUSED);
+      toContent(MSG.STATUS_PAUSED);
     }
     return;
   }
@@ -359,6 +365,7 @@ chrome.runtime.onMessage.addListener((message) => {
       resumeScheduler();
       void streamSynthesisPump();
       toPopup(MSG.STATUS_PLAYING);
+      toContent(MSG.STATUS_PLAYING);
       return;
     }
     if (pb.isPaused && pb.active) {
@@ -367,6 +374,7 @@ chrome.runtime.onMessage.addListener((message) => {
       startSynthesisPump();
       setPhase('playing', { model: pb.model, totalChunks: pb.totalChunks });
       toPopup(MSG.STATUS_PLAYING);
+      toContent(MSG.STATUS_PLAYING);
     }
     return;
   }
