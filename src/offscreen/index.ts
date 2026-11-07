@@ -179,11 +179,13 @@ interface StreamBlock {
   index: number;
   text: string;
   isLastBlock?: boolean;
+  epoch?: number;
 }
 
 interface StreamState {
   active: boolean;
   isPaused: boolean;
+  epoch: number;
   textBuffer: StreamBlock[];
   audioQueue: Array<{ index: number; buffer: AudioBuffer; playbackRate: number }>;
   currentBlockIndex: number;
@@ -197,6 +199,7 @@ interface StreamState {
 const stream: StreamState = {
   active: false,
   isPaused: false,
+  epoch: 0,
   textBuffer: [],
   audioQueue: [],
   currentBlockIndex: 0,
@@ -218,8 +221,8 @@ setTimingCallback(({ index, semanticId, startTime, duration }) => {
   // Streaming mode: highlight block by semantic ID
   if (stream.active && semanticId !== undefined) {
     const chunkText = chunkTexts[index];
-    log('offscreen', 'log', `[Track: AUDIO_PLAYING] Block #${semanticId}: "${chunkText?.slice(0, 80) || ''}..."`);
-    toContent(MSG.HIGHLIGHT_BLOCK, { blockIndex: Number(semanticId) });
+    log('offscreen', 'log', `[Track: AUDIO_PLAYING] Block #${semanticId} (epoch ${stream.epoch}): "${chunkText?.slice(0, 80) || ''}..."`);
+    toContent(MSG.HIGHLIGHT_BLOCK, { blockIndex: Number(semanticId), epoch: stream.epoch });
     return;
   }
 
@@ -240,7 +243,8 @@ setWordTimingCallback(({ word, charIndex, charLength, semanticId }) => {
     word,
     charIndex,
     charLength,
-    semanticId
+    semanticId,
+    epoch: stream.epoch
   });
 });
 
@@ -428,19 +432,21 @@ chrome.runtime.onMessage.addListener((message) => {
   }
 
   if (message.type === MSG.STREAM_SEEK) {
-    log('offscreen', 'log', 'STREAM_SEEK received, resetting scheduler and buffers for block', message.blockIndex);
-    currentGenerationId++;
+    const targetBlock = typeof message.blockIndex === 'number' ? message.blockIndex : 0;
+    const seekEpoch = typeof message.epoch === 'number' ? message.epoch : ++currentGenerationId;
+    log('offscreen', 'log', `STREAM_SEEK received: block #${targetBlock}, epoch ${seekEpoch}`);
+
+    currentGenerationId = seekEpoch;
+    stream.epoch = seekEpoch;
     resetScheduler();
     stream.textBuffer = [];
     stream.audioQueue = [];
-    if (typeof message.blockIndex === 'number') {
-      stream.currentBlockIndex = message.blockIndex;
-    }
-    stream.synthesizing = false;
+    stream.currentBlockIndex = targetBlock;
     stream.ended = false;
     stream.isPaused = false;
     stream.blockMap.clear();
     stream.schedulerIndex = 0;
+    chunkTexts = [];
     hasAnnouncedPlaying = false;
     toPopup(MSG.STATUS_PLAYING);
     toContent(MSG.STATUS_PLAYING);
@@ -488,12 +494,18 @@ async function handleStreamBuffer(block: StreamBlock): Promise<void> {
     await initStream();
   }
 
-  log('offscreen', 'log', `Stream buffer received block ${block.index}, len=${block.text.length}`);
+  // Drop blocks from stale epochs (e.g. in-flight from before a seek)
+  if (block.epoch !== undefined && block.epoch !== stream.epoch) {
+    log('offscreen', 'warn', `Dropping stale TTS_BUFFER block #${block.index} (epoch ${block.epoch}), active stream epoch is ${stream.epoch}`);
+    return;
+  }
+
+  log('offscreen', 'log', `Stream buffer received block #${block.index} (epoch ${block.epoch ?? stream.epoch}), len=${block.text.length}`);
   stream.currentBlockIndex = block.index;
   const { splitTextIntoTTSChunks } = await import('../shared/sentence-splitter.js');
   const subChunks = splitTextIntoTTSChunks(block.text, 140);
   for (const sub of subChunks) {
-    stream.textBuffer.push({ index: block.index, text: sub });
+    stream.textBuffer.push({ index: block.index, text: sub, epoch: block.epoch ?? stream.epoch });
   }
   stream.blockMap.set(block.index, block.text);
 
@@ -517,6 +529,9 @@ async function initStream(): Promise<void> {
   stream.audioQueue = [];
   stream.blockMap = new Map();
   stream.schedulerIndex = 0;
+  if (stream.epoch === 0) {
+    stream.epoch = ++currentGenerationId;
+  }
   chunkTexts = [];
   hasAnnouncedPlaying = false;
 
@@ -556,6 +571,7 @@ async function streamSynthesisPump(): Promise<void> {
     return;
   }
 
+  const pumpEpoch = stream.epoch;
   stream.synthesizing = true;
 
   try {
@@ -563,9 +579,16 @@ async function streamSynthesisPump(): Promise<void> {
     const { index, text } = item;
     const { model, voice, speed } = stream.settings;
 
-    log('offscreen', 'log', `[Track: SYNTHESIZING] Block #${index} (${text.length} chars): "${text.slice(0, 80)}..."`);
+    log('offscreen', 'log', `[Track: SYNTHESIZING] Block #${index} (epoch ${pumpEpoch}): "${text.slice(0, 80)}..."`);
     const start = performance.now();
     const inferRes = await inferViaWorker(model, text, voice, speed);
+
+    // CRITICAL PRESERVATION: If user seeked or stopped while waiting for worker, drop the stale audio immediately!
+    if (!stream.active || stream.epoch !== pumpEpoch) {
+      log('offscreen', 'warn', `[Track: DROPPED_STALE] Dropped audio for Block #${index} because stream epoch changed (${pumpEpoch} -> ${stream.epoch})`);
+      return;
+    }
+
     const { audio, sampleRate, playbackRate } = inferRes;
     const elapsed = Math.round(performance.now() - start);
     recordTiming(`stream_block_${index}`, elapsed);
@@ -582,31 +605,39 @@ async function streamSynthesisPump(): Promise<void> {
       enqueuePause(stream.schedulerIndex++, 0.5 / speed);
     }
 
-    log('offscreen', 'log', `Block ${index} enqueued at scheduler ${schedIdx}`);
+    log('offscreen', 'log', `Block #${index} (epoch ${pumpEpoch}) enqueued at scheduler ${schedIdx}`);
 
   } catch (e) {
-    log('offscreen', 'error', 'Stream synthesis failed:', (e as Error).message);
-    recordError('offscreen', `Stream: ${(e as Error).message}`);
+    if (stream.active && stream.epoch === pumpEpoch) {
+      log('offscreen', 'error', 'Stream synthesis failed:', (e as Error).message);
+      recordError('offscreen', `Stream: ${(e as Error).message}`);
+    }
   } finally {
     stream.synthesizing = false;
   }
 
-  if (stream.textBuffer.length > 0) {
+  // Continue stream pump if still active and on current epoch
+  if (stream.active && stream.epoch === pumpEpoch) {
+    if (stream.textBuffer.length > 0) {
+      void streamSynthesisPump();
+    } else if (!stream.ended) {
+      requestNextBlock();
+    } else {
+      setQueueDrained(true);
+    }
+  } else if (stream.active && stream.textBuffer.length > 0 && !stream.isPaused) {
+    // Epoch changed while worker was busy, start pump for the new epoch immediately
     void streamSynthesisPump();
-  } else if (!stream.ended) {
-    requestNextBlock();
-  } else {
-    setQueueDrained(true);
   }
 }
 
 function requestNextBlock(): void {
-  if (stream.ended) return;
+  if (stream.ended || !stream.active) return;
   const nextIndex = stream.textBuffer.length > 0
     ? stream.textBuffer[stream.textBuffer.length - 1].index + 1
     : stream.currentBlockIndex + 1;
-  log('offscreen', 'log', 'Requesting next block:', nextIndex);
-  toBackground(MSG.STATUS_NEED_BLOCK, { nextBlockIndex: nextIndex });
+  log('offscreen', 'log', `Requesting next block: ${nextIndex} (epoch: ${stream.epoch})`);
+  toBackground(MSG.STATUS_NEED_BLOCK, { nextBlockIndex: nextIndex, epoch: stream.epoch });
 }
 
 function finishStream(): void {
@@ -621,6 +652,7 @@ function finishStream(): void {
 
 function stopStream(): void {
   log('offscreen', 'log', 'Stream stopped');
+  stream.epoch++;
   stream.active = false;
   stream.isPaused = false;
   stream.textBuffer = [];

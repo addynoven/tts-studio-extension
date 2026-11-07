@@ -106,12 +106,22 @@ describe('background message router', () => {
     );
   });
 
-  it('routes STREAM_SEEK to offscreen', async () => {
-    const msg = { type: MSG.STREAM_SEEK, blockIndex: 5 };
+  it('routes STREAM_SEEK with epoch to offscreen', async () => {
+    const msg = { type: MSG.STREAM_SEEK, blockIndex: 5, epoch: 42 };
     messageHandler(msg, {}, vi.fn());
     await new Promise(r => setTimeout(r, 10));
     expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ target: 'offscreen', type: MSG.STREAM_SEEK, blockIndex: 5 })
+      expect.objectContaining({ target: 'offscreen', type: MSG.STREAM_SEEK, blockIndex: 5, epoch: 42 })
+    );
+  });
+
+  it('routes STATUS_NEED_BLOCK with epoch to content tabs', async () => {
+    const msg = { type: MSG.STATUS_NEED_BLOCK, nextBlockIndex: 6, epoch: 42 };
+    messageHandler(msg, {}, vi.fn());
+    await new Promise(r => setTimeout(r, 10));
+    expect(chrome.tabs.sendMessage).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({ type: MSG.REQUEST_BLOCK, blockIndex: 6, epoch: 42, _forwarded: true })
     );
   });
 });

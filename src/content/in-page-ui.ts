@@ -405,11 +405,11 @@ function renderMiniPlayerContent(): void {
   const logSvg = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect></svg>`;
 
   miniPlayerEl.innerHTML = `
-    <button class="tts-prev-btn" title="Previous sentence">${prevSvg}</button>
+    <button class="tts-prev-btn" title="Previous block">${prevSvg}</button>
     <button class="tts-play-btn" title="${isPlayingState ? 'Pause' : 'Play'}" aria-label="${isPlayingState ? 'Pause' : 'Play'}">
       ${isPlayingState ? pauseSvg : playSvg}
     </button>
-    <button class="tts-next-btn" title="Next sentence">${nextSvg}</button>
+    <button class="tts-next-btn" title="Next block">${nextSvg}</button>
     <span class="tts-studio-speed-badge" title="Change speaking speed">${currentSpeed}×</span>
     <button class="tts-log-btn" title="Copy Click-to-Read Trace Log" aria-label="Copy Trace Log">${logSvg}</button>
     <button class="tts-close-btn" title="Stop & close">${closeSvg}</button>

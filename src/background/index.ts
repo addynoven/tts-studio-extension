@@ -113,10 +113,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   // ── Streaming: STATUS_NEED_BLOCK from offscreen → forward to content as REQUEST_BLOCK ──
   if (message.type === MSG.STATUS_NEED_BLOCK) {
-    log('bg', 'log', 'Offscreen needs block', message.nextBlockIndex);
+    log('bg', 'log', 'Offscreen needs block', message.nextBlockIndex, 'epoch:', message.epoch);
     forwardToContent({
       type: MSG.REQUEST_BLOCK,
-      blockIndex: message.nextBlockIndex
+      blockIndex: message.nextBlockIndex,
+      epoch: message.epoch
     });
     return false;
   }
@@ -130,8 +131,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   // ── Streaming: STREAM_SEEK from content → forward to offscreen ──
   if (message.type === MSG.STREAM_SEEK) {
-    log('bg', 'log', 'STREAM_SEEK received, forwarding to offscreen');
-    sendToOffscreen({ target: 'offscreen', type: MSG.STREAM_SEEK, blockIndex: message.blockIndex });
+    log('bg', 'log', 'STREAM_SEEK received, forwarding to offscreen, epoch:', message.epoch);
+    sendToOffscreen({
+      target: 'offscreen',
+      type: MSG.STREAM_SEEK,
+      blockIndex: message.blockIndex,
+      epoch: message.epoch
+    });
     return false;
   }
 

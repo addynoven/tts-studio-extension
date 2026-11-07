@@ -274,7 +274,10 @@ export function skipToChunk(chunkIndex: number): void {
   log('offscreen', 'log', `Scheduler: skipToChunk(${chunkIndex})`);
 
   for (const src of activeSources) {
-    try { src.stop(); } catch {}
+    try {
+      src.onended = null;
+      src.stop();
+    } catch {}
   }
   activeSources.clear();
 
@@ -335,7 +338,10 @@ export function resetScheduler(closeContext = false): void {
   }
   activeTimeouts.clear();
   for (const src of activeSources) {
-    try { src.stop(); } catch {}
+    try {
+      src.onended = null;
+      src.stop();
+    } catch {}
   }
   activeSources.clear();
   queue.clear();

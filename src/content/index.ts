@@ -68,10 +68,22 @@ initInPageUI({
     clearAll();
   },
   onSkipForward: () => {
-    safeSendBackground(MSG.TTS_SKIP_FORWARD);
+    if (streamActive && streamIterator) {
+      const nextIdx = Math.min(currentBlockIndex + 1, streamIterator.totalBlocks - 1);
+      log('content', 'log', 'Direct skipping forward to block:', nextIdx);
+      seekToBlock(nextIdx);
+    } else {
+      safeSendBackground(MSG.TTS_SKIP_FORWARD);
+    }
   },
   onSkipBackward: () => {
-    safeSendBackground(MSG.TTS_SKIP_BACKWARD);
+    if (streamActive && streamIterator) {
+      const prevIdx = Math.max(0, currentBlockIndex - 1);
+      log('content', 'log', 'Direct skipping backward to block:', prevIdx);
+      seekToBlock(prevIdx);
+    } else {
+      safeSendBackground(MSG.TTS_SKIP_BACKWARD);
+    }
   },
   onSpeedChange: (speed: number) => {
     if (!isExtensionValid()) return;
@@ -101,6 +113,7 @@ onSettingsChanged((newSettings) => {
 let streamIterator: BlockIterator | null = null;
 let streamActive = false;
 let currentBlockIndex = 0;
+let streamEpoch = 0;
 
 export const clickTrackLogs: string[] = [];
 
@@ -213,6 +226,10 @@ function ttsMessageHandler(
       return false;
 
     case MSG.HIGHLIGHT_WORD:
+      if (typeof message.epoch === 'number' && message.epoch !== streamEpoch) {
+        sendResponse({ ok: false });
+        return false;
+      }
       if (typeof message.charIndex === 'number') {
         highlightWord(message.charIndex, (message.charLength as number) || 1);
       }
@@ -221,6 +238,11 @@ function ttsMessageHandler(
 
     case MSG.HIGHLIGHT_BLOCK:
       if (message.blockIndex !== undefined) {
+        if (typeof message.epoch === 'number' && message.epoch !== streamEpoch) {
+          log('content', 'warn', `Dropping HIGHLIGHT_BLOCK #${message.blockIndex} with stale epoch ${message.epoch} (current is ${streamEpoch})`);
+          sendResponse({ ok: false });
+          return false;
+        }
         handleHighlightBlock(message.blockIndex);
       }
       sendResponse({ ok: true });
@@ -243,6 +265,7 @@ function ttsMessageHandler(
       hideMiniPlayer();
       clearAll();
       streamActive = false;
+      streamEpoch++;
       sendResponse({ ok: true });
       return false;
 
@@ -329,9 +352,11 @@ function sliceTextFromSentenceOffset(ttsText: string, charOffset: number): strin
 function seekToBlock(targetIndex: number, startCharOffset = 0): void {
   if (!streamIterator) return;
   const clampedIndex = Math.max(0, Math.min(targetIndex, streamIterator.totalBlocks - 1));
+  streamEpoch++;
+  const thisEpoch = streamEpoch;
   currentBlockIndex = clampedIndex;
   streamIterator.seek(clampedIndex);
-  safeSendBackground(MSG.STREAM_SEEK, { blockIndex: clampedIndex });
+  safeSendBackground(MSG.STREAM_SEEK, { blockIndex: clampedIndex, epoch: thisEpoch });
   handleHighlightBlock(clampedIndex);
 
   const block = streamIterator.next();
@@ -341,9 +366,10 @@ function seekToBlock(targetIndex: number, startCharOffset = 0): void {
       textToSend = sliceTextFromSentenceOffset(block.ttsText, startCharOffset);
     }
     recordTrackEvent('SEEK_AND_READ', {
-      summary: `Block #${block.index} starting at charOffset ${startCharOffset}`,
+      summary: `Block #${block.index} starting at charOffset ${startCharOffset} (epoch ${thisEpoch})`,
       targetBlockIndex: block.index,
       startCharOffset,
+      epoch: thisEpoch,
       totalParagraphChars: block.ttsText.length,
       fullParagraph: block.ttsText.slice(0, 100) + '...',
       spokenTextPreview: textToSend.slice(0, 100) + '...'
@@ -360,12 +386,14 @@ function handleStreamStart(startIndex = 0): void {
   clearAll();
   streamIterator = new BlockIterator();
   streamActive = true;
+  streamEpoch++;
+  const thisEpoch = streamEpoch;
 
   if (startIndex > 0 && startIndex < streamIterator.totalBlocks) {
     streamIterator.seek(startIndex);
   }
   currentBlockIndex = streamIterator.cursor;
-  safeSendBackground(MSG.STREAM_SEEK, { blockIndex: currentBlockIndex });
+  safeSendBackground(MSG.STREAM_SEEK, { blockIndex: currentBlockIndex, epoch: thisEpoch });
 
   log('content', 'log', 'BlockIterator initialized,', streamIterator.totalBlocks, 'raw blocks');
 
@@ -470,8 +498,13 @@ async function handleStreamStartFromSelection(selectionText?: string): Promise<v
 }
 
 function handleRequestBlock(message: ContentMessage, sendResponse: (res: unknown) => void): void {
+  if (typeof message.epoch === 'number' && message.epoch !== streamEpoch) {
+    log('content', 'warn', `Dropping stale REQUEST_BLOCK epoch ${message.epoch}, current is ${streamEpoch}`);
+    sendResponse({ ok: false, error: 'Stale epoch' });
+    return;
+  }
   const index = message.blockIndex ?? -1;
-  log('content', 'log', 'REQUEST_BLOCK:', index);
+  log('content', 'log', `REQUEST_BLOCK: ${index} (epoch: ${message.epoch})`);
 
   if (!streamIterator || !streamActive) {
     log('content', 'warn', 'REQUEST_BLOCK but no active stream');
@@ -501,7 +534,8 @@ function sendBlockReady(block: ExtractedBlock, isLast: boolean): void {
     block: {
       index: block.index,
       text: block.ttsText,
-      isLastBlock: isLast
+      isLastBlock: isLast,
+      epoch: streamEpoch
     }
   });
 }
