@@ -99,7 +99,7 @@ async function inferViaWorker(model: string, text: string, voice: string, speed:
     const res = await postToWorker('infer', { model, text, voice, speed });
     return res as TTSResult;
   } catch (e) {
-    log('offscreen', 'warn', 'Worker infer failed, falling back to direct:', (e as Error).message);
+    log('offscreen', 'warn', 'Worker infer failed, falling back to direct:', (e as Error).stack || (e as Error).message);
     return await generateAudio(model, text, voice, speed);
   }
 }

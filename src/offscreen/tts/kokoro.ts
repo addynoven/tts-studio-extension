@@ -82,7 +82,7 @@ function hookKokoroModel(instance: KokoroTTS): void {
             }
           }
         }
-        const output = await origModel.call(this, modelInputs);
+        const output = await origModel(modelInputs);
         if (output && typeof output === 'object') {
           for (const val of Object.values(output)) {
             if (val && typeof (val as { dispose?: () => void }).dispose === 'function') {
