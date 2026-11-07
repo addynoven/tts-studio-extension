@@ -61,6 +61,15 @@ initInPageUI({
     void handleStreamStartFromSelection(text);
   },
   onTogglePlay: () => {
+    if (!streamActive) {
+      if (!streamIterator) {
+        streamIterator = new BlockIterator();
+      }
+      if (streamIterator.totalBlocks > 0) {
+        seekToBlock(currentBlockIndex);
+        return;
+      }
+    }
     safeSendBackground(MSG.TTS_TOGGLE_PLAYBACK);
   },
   onStop: () => {
@@ -68,22 +77,20 @@ initInPageUI({
     clearAll();
   },
   onSkipForward: () => {
-    if (streamActive && streamIterator) {
-      const nextIdx = Math.min(currentBlockIndex + 1, streamIterator.totalBlocks - 1);
-      log('content', 'log', 'Direct skipping forward to block:', nextIdx);
-      seekToBlock(nextIdx);
-    } else {
-      safeSendBackground(MSG.TTS_SKIP_FORWARD);
+    if (!streamIterator) {
+      streamIterator = new BlockIterator();
     }
+    const nextIdx = Math.min(currentBlockIndex + 1, Math.max(0, streamIterator.totalBlocks - 1));
+    log('content', 'log', 'Direct skipping forward to block:', nextIdx);
+    seekToBlock(nextIdx);
   },
   onSkipBackward: () => {
-    if (streamActive && streamIterator) {
-      const prevIdx = Math.max(0, currentBlockIndex - 1);
-      log('content', 'log', 'Direct skipping backward to block:', prevIdx);
-      seekToBlock(prevIdx);
-    } else {
-      safeSendBackground(MSG.TTS_SKIP_BACKWARD);
+    if (!streamIterator) {
+      streamIterator = new BlockIterator();
     }
+    const prevIdx = Math.max(0, currentBlockIndex - 1);
+    log('content', 'log', 'Direct skipping backward to block:', prevIdx);
+    seekToBlock(prevIdx);
   },
   onSpeedChange: (speed: number) => {
     if (!isExtensionValid()) return;
@@ -587,7 +594,17 @@ document.addEventListener('click', (e: MouseEvent) => {
     streamIterator = new BlockIterator();
   }
 
-  const clickedIndex = streamIterator.findBlockIndexByNode(target);
+  let clickedIndex = streamIterator.findBlockIndexByNode(target);
+
+  // If not found in current streamIterator, try a fresh fallback using document.body
+  if (clickedIndex < 0) {
+    const bodyIter = new BlockIterator({}, document.body);
+    const bodyIdx = bodyIter.findBlockIndexByNode(target);
+    if (bodyIdx >= 0) {
+      streamIterator = bodyIter;
+      clickedIndex = bodyIdx;
+    }
+  }
 
   recordTrackEvent('MOUSE_CLICK', {
     summary: `<${target.tagName.toLowerCase()}> at (${e.clientX}, ${e.clientY})`,

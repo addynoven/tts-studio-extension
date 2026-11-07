@@ -192,5 +192,74 @@ describe('extractor', () => {
       const iter = new BlockIterator({}, document.body);
       expect(iter.totalBlocks).toBe(6);
     });
+
+    it('extracts modern SPA div.paragraph and role="paragraph" blocks', () => {
+      document.body.innerHTML = `
+        <div class="chat-container">
+          <p class="user-query">Can you explain modern database architectures?</p>
+          <div class="response">
+            <div class="paragraph normal">
+              <span><b>Chapter 1:</b> The Foundations of Modern Data Architecture.</span>
+            </div>
+            <div class="paragraph normal">
+              <span>OLTP, OLAP, Data Warehouse, and Data Lake systems of record.</span>
+            </div>
+            <div role="paragraph">
+              <span>Distributed consensus algorithms power modern replication.</span>
+            </div>
+          </div>
+        </div>
+      `;
+
+      const iter = new BlockIterator({}, document.body);
+      expect(iter.totalBlocks).toBe(4);
+
+      const block0 = iter.next();
+      expect(block0?.rawText).toContain('Can you explain');
+
+      const block1 = iter.next();
+      expect(block1?.rawText).toContain('Chapter 1');
+
+      const block2 = iter.next();
+      expect(block2?.rawText).toContain('OLTP, OLAP');
+
+      const block3 = iter.next();
+      expect(block3?.rawText).toContain('Distributed consensus');
+    });
+
+    it('matches clicked child nodes via ancestor traversal and text snippet fallback', () => {
+      document.body.innerHTML = `
+        <div class="notebook-view">
+          <div class="paragraph normal">
+            <span class="segment"><b class="title">Chapter 1</b>: Complete overview of distributed systems.</span>
+          </div>
+        </div>
+      `;
+
+      const iter = new BlockIterator({}, document.body);
+      const bEl = document.querySelector('b.title');
+      expect(iter.findBlockIndexByNode(bEl)).toBe(0);
+
+      // Even with detached or synthetic element with matching text
+      const syntheticEl = document.createElement('span');
+      syntheticEl.textContent = 'Complete overview of distributed systems';
+      expect(iter.findBlockIndexByNode(syntheticEl)).toBe(0);
+    });
+
+    it('ignores emoji-keyboard and falls back to document.body when candidate has < 2 blocks', () => {
+      document.body.innerHTML = `
+        <main class="emoji-keyboard__grid" aria-hidden="true">
+          <span>😀</span>
+        </main>
+        <div class="content">
+          <p>First authentic paragraph in the main body.</p>
+          <p>Second authentic paragraph in the main body.</p>
+        </div>
+      `;
+
+      const iter = new BlockIterator();
+      expect(iter.totalBlocks).toBe(2);
+      expect(iter.next()?.rawText).toContain('First authentic paragraph');
+    });
   });
 });

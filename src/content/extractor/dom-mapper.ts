@@ -55,12 +55,19 @@ export class BlockIterator {
     this.stopReached = false;
 
     const articleRoot = rootElement !== undefined ? rootElement : findArticleRoot();
-    const root = articleRoot || document.body;
+    let root = articleRoot || document.body;
     this.title = document.title || '';
 
     // Step 1: Walk DOM once, collect lightweight block references
     const rawBlocks: RawBlock[] = [];
     walkBlocks(root, rawBlocks);
+
+    // If an articleRoot was selected but produced fewer than 2 blocks, fall back to document.body
+    if (rawBlocks.length < 2 && root !== document.body) {
+      rawBlocks.length = 0;
+      root = document.body;
+      walkBlocks(root, rawBlocks);
+    }
 
     // Step 2: Pre-filter noise without destroying quotes or valid dialogue
     for (const b of rawBlocks) {
@@ -135,6 +142,25 @@ export class BlockIterator {
       if (targetEl.contains(blockEl)) {
         return i;
       }
+    }
+
+    // 3. Ascend targetEl's parent chain (in case clicked element is nested in a custom wrapper)
+    let curr: Element | null = targetEl.parentElement;
+    while (curr && curr !== document.body && curr !== document.documentElement) {
+      for (let i = 0; i < this.blocks.length; i++) {
+        const blockEl = this.blocks[i].el;
+        if (blockEl === curr || blockEl.contains(curr)) {
+          return i;
+        }
+      }
+      curr = curr.parentElement;
+    }
+
+    // 4. Fallback: match by text snippet
+    const text = (targetEl.textContent || '').trim();
+    if (text.length >= 5) {
+      const idx = this.findBlockIndexByText(text);
+      if (idx !== -1) return idx;
     }
 
     return -1;
@@ -228,8 +254,11 @@ function findArticleRoot(): Element | null {
       'article, main, [role="main"], .post-content, .article-body, .entry-content, #mw-content-text, .mw-parser-output'
     );
     for (const el of Array.from(candidates)) {
+      const className = typeof el.className === 'string' ? el.className.toLowerCase() : '';
+      if (className.includes('emoji-keyboard') || el.getAttribute('aria-hidden') === 'true') continue;
+
       const elText = el.textContent || '';
-      if (elText.length > 0 && articleText.length > 0) {
+      if (elText.length >= 100 && articleText.length > 0) {
         const overlap = computeOverlap(articleText, elText);
         if (overlap > 0.6) return el;
       }
@@ -241,6 +270,9 @@ function findArticleRoot(): Element | null {
     let bestScore = 0;
 
     for (const div of Array.from(divs)) {
+      const className = typeof div.className === 'string' ? div.className.toLowerCase() : '';
+      if (className.includes('emoji-keyboard') || div.getAttribute('aria-hidden') === 'true') continue;
+
       const text = div.textContent || '';
       if (text.length < articleText.length * 0.5) continue;
       if (text.length > articleText.length * 3) continue;
@@ -268,26 +300,65 @@ function computeOverlap(textA: string, textB: string): number {
   return matched / wordsA.size;
 }
 
+const INLINE_TAGS = new Set([
+  'SPAN', 'A', 'B', 'I', 'STRONG', 'EM', 'SMALL', 'CODE', 'MARK',
+  'SUB', 'SUP', 'TIME', 'ABBR', 'CITE', 'Q', 'S', 'DEL', 'INS', 'BR', 'WBR', 'IMG', 'KBD'
+]);
+
+function isLeafTextBlock(el: Element): boolean {
+  if (SKIP_TAGS.has(el.tagName)) return false;
+
+  const className = typeof el.className === 'string' ? el.className.toLowerCase() : '';
+  const role = el.getAttribute('role');
+
+  // Explicit paragraph role or class in modern frameworks (e.g. NotebookLM "paragraph normal", Notion, Claude)
+  if (role === 'paragraph' || className.includes('paragraph')) {
+    return true;
+  }
+
+  // If it has children, check if all children are inline elements
+  if (el.children.length > 0) {
+    for (let i = 0; i < el.children.length; i++) {
+      const tag = el.children[i].tagName;
+      if (!INLINE_TAGS.has(tag)) {
+        return false;
+      }
+    }
+  }
+
+  // Only consider container elements like DIV, SECTION, or custom elements (with a dash)
+  if (el.tagName === 'DIV' || el.tagName === 'SECTION' || el.tagName.includes('-')) {
+    const text = (el.textContent || '').trim();
+    return text.length >= 15;
+  }
+
+  return false;
+}
+
 function walkBlocks(root: Element, blocks: RawBlock[]): void {
   for (const child of Array.from(root.children)) {
     if (SKIP_TAGS.has(child.tagName)) continue;
+    if (child.getAttribute('aria-hidden') === 'true') continue;
 
-    const className = child.className || '';
-    const id = child.id || '';
-    if (typeof className === 'string' && (
+    const className = typeof child.className === 'string' ? child.className.toLowerCase() : '';
+    const id = (child.id || '').toLowerCase();
+    if (
       className.includes('navbox') ||
       className.includes('reflist') ||
       className.includes('infobox') ||
       className.includes('toc') ||
       className.includes('metadata') ||
-      className.includes('article-footer')
-    )) continue;
+      className.includes('article-footer') ||
+      className.includes('emoji-keyboard')
+    ) continue;
     if (id === 'catlinks' || id === 'toc' || id === 'references' || id === 'feedback') continue;
 
     const style = window.getComputedStyle(child);
     if (style.display === 'none' || style.visibility === 'hidden') continue;
 
-    if (BLOCK_TAGS.has(child.tagName)) {
+    const isBlock = BLOCK_TAGS.has(child.tagName) || isLeafTextBlock(child);
+
+    if (isBlock) {
       const text = child.textContent || '';
       const html = child.innerHTML || '';
       if (text.trim()) {
