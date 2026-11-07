@@ -39,11 +39,13 @@ coverage/
 
 # Ignore old extension folder
 old-tts-studio-extension/
+tts-studio-extension/
 
-# Ignore generated models
+# Ignore binary models and wasm
+*.onnx
+*.wasm
+*.bin
 src/assets/models/
-
-# Ignore generated lib files
 src/assets/lib/
 # Added by code-review-graph
 .code-review-graph/*

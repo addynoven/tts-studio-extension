@@ -97,14 +97,14 @@ function findHtmlFiles(dir: string): string[] {
 }
 
 /**
- * Copy static assets from the legacy extension into dist/assets/.
+ * Copy static assets from src/assets into dist/assets/.
  */
-function copyLegacyAssets() {
-  const legacy = resolve(__dirname, 'tts-studio-extension');
+function copyStaticAssets() {
+  const iconsSrc = resolve(__dirname, 'src/assets/icons');
   const distAssets = resolve(__dirname, 'dist/assets');
 
-  if (existsSync(resolve(legacy, 'icons'))) {
-    copyDir(resolve(legacy, 'icons'), resolve(distAssets, 'icons'));
+  if (existsSync(iconsSrc)) {
+    copyDir(iconsSrc, resolve(distAssets, 'icons'));
   }
 }
 
@@ -205,7 +205,7 @@ export default defineConfig({
         flattenDist();
         copyManifest();
         copyMathmaps();
-        copyLegacyAssets();
+        copyStaticAssets();
         copyTransformersAssets();
         await bundleContentScriptIIFE();
         console.log('✓ Chrome extension built to dist/');
