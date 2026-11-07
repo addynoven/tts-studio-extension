@@ -13,6 +13,7 @@ console.warn = (...args: unknown[]) => {
 };
 
 import { MSG, defaultVoiceForModel } from '../shared/constants.js';
+import { splitTextIntoTTSChunks } from '../shared/sentence-splitter.js';
 import {
   enqueueChunk,
   enqueuePause,
@@ -61,6 +62,8 @@ function getWorker(): Worker {
       pending.delete(id);
       if (type === 'error') {
         p.reject(new Error(error || 'Worker error'));
+      } else if (type === 'cancelled') {
+        p.reject(new Error('Inference cancelled'));
       } else if (type === 'loaded') {
         p.resolve({ loaded: true });
       } else {
@@ -72,6 +75,14 @@ function getWorker(): Worker {
     };
   }
   return worker;
+}
+
+function clearWorkerQueue(): void {
+  if (worker) {
+    try {
+      worker.postMessage({ type: 'clearQueue' });
+    } catch {}
+  }
 }
 
 function postToWorker(type: string, payload: Record<string, unknown>): Promise<TTSResult | { loaded: true }> {
@@ -112,6 +123,9 @@ async function inferViaWorker(model: string, text: string, voice: string, speed:
     const res = await postToWorker('infer', { model, text, voice, speed });
     return res as TTSResult;
   } catch (e) {
+    if ((e as Error)?.message === 'Inference cancelled') {
+      throw e;
+    }
     log('offscreen', 'error', 'Worker infer failed:', (e as Error).message);
     // If worker crashes from Vulkan/WebGPU memory exhaustion, terminate it to force Dawn to free GPU buffers!
     terminateWorker();
@@ -438,7 +452,9 @@ chrome.runtime.onMessage.addListener((message) => {
 
     currentGenerationId = seekEpoch;
     stream.epoch = seekEpoch;
+    clearWorkerQueue();
     resetScheduler();
+    stream.active = true;
     stream.textBuffer = [];
     stream.audioQueue = [];
     stream.currentBlockIndex = targetBlock;
@@ -494,15 +510,18 @@ async function handleStreamBuffer(block: StreamBlock): Promise<void> {
     await initStream();
   }
 
-  // Drop blocks from stale epochs (e.g. in-flight from before a seek)
-  if (block.epoch !== undefined && block.epoch !== stream.epoch) {
+  // If incoming block has a newer epoch than our state, advance to it
+  if (typeof block.epoch === 'number' && block.epoch > stream.epoch) {
+    log('offscreen', 'log', `TTS_BUFFER advancing stream epoch from ${stream.epoch} to ${block.epoch}`);
+    stream.epoch = block.epoch;
+    currentGenerationId = block.epoch;
+  } else if (typeof block.epoch === 'number' && block.epoch < stream.epoch) {
     log('offscreen', 'warn', `Dropping stale TTS_BUFFER block #${block.index} (epoch ${block.epoch}), active stream epoch is ${stream.epoch}`);
     return;
   }
 
   log('offscreen', 'log', `Stream buffer received block #${block.index} (epoch ${block.epoch ?? stream.epoch}), len=${block.text.length}`);
   stream.currentBlockIndex = block.index;
-  const { splitTextIntoTTSChunks } = await import('../shared/sentence-splitter.js');
   const subChunks = splitTextIntoTTSChunks(block.text, 140);
   for (const sub of subChunks) {
     stream.textBuffer.push({ index: block.index, text: sub, epoch: block.epoch ?? stream.epoch });
@@ -583,32 +602,32 @@ async function streamSynthesisPump(): Promise<void> {
     const start = performance.now();
     const inferRes = await inferViaWorker(model, text, voice, speed);
 
-    // CRITICAL PRESERVATION: If user seeked or stopped while waiting for worker, drop the stale audio immediately!
-    if (!stream.active || stream.epoch !== pumpEpoch) {
+    // If still in current epoch, enqueue the synthesized audio to scheduler
+    if (stream.active && stream.epoch === pumpEpoch) {
+      const { audio, sampleRate, playbackRate } = inferRes;
+      const elapsed = Math.round(performance.now() - start);
+      recordTiming(`stream_block_${index}`, elapsed);
+
+      const buffer = createAudioBuffer(new Float32Array(audio), sampleRate);
+      const schedIdx = stream.schedulerIndex++;
+
+      enqueueChunk(schedIdx, buffer, playbackRate, index, inferRes.wordTimings);
+      chunkTexts[schedIdx] = text;
+
+      // Only add natural pause between DIFFERENT blocks (keep intra-paragraph chunks seamless!)
+      const nextItem = stream.textBuffer[0];
+      const isBlockBoundary = !nextItem || nextItem.index !== index;
+      if (isBlockBoundary && (!stream.ended || stream.textBuffer.length > 0)) {
+        enqueuePause(stream.schedulerIndex++, 0.3 / speed);
+      }
+
+      log('offscreen', 'log', `Block #${index} (epoch ${pumpEpoch}) enqueued at scheduler ${schedIdx}`);
+    } else {
       log('offscreen', 'warn', `[Track: DROPPED_STALE] Dropped audio for Block #${index} because stream epoch changed (${pumpEpoch} -> ${stream.epoch})`);
-      return;
     }
-
-    const { audio, sampleRate, playbackRate } = inferRes;
-    const elapsed = Math.round(performance.now() - start);
-    recordTiming(`stream_block_${index}`, elapsed);
-
-    const buffer = createAudioBuffer(new Float32Array(audio), sampleRate);
-    const schedIdx = stream.schedulerIndex++;
-
-    // Enqueue chunk with semanticId set to original block.index and wordTimings
-    enqueueChunk(schedIdx, buffer, playbackRate, index, inferRes.wordTimings);
-    chunkTexts[schedIdx] = text;
-
-    // Add pause between blocks
-    if (!stream.ended || stream.textBuffer.length > 0) {
-      enqueuePause(stream.schedulerIndex++, 0.5 / speed);
-    }
-
-    log('offscreen', 'log', `Block #${index} (epoch ${pumpEpoch}) enqueued at scheduler ${schedIdx}`);
 
   } catch (e) {
-    if (stream.active && stream.epoch === pumpEpoch) {
+    if ((e as Error)?.message !== 'Inference cancelled' && stream.active && stream.epoch === pumpEpoch) {
       log('offscreen', 'error', 'Stream synthesis failed:', (e as Error).message);
       recordError('offscreen', `Stream: ${(e as Error).message}`);
     }
@@ -616,8 +635,8 @@ async function streamSynthesisPump(): Promise<void> {
     stream.synthesizing = false;
   }
 
-  // Continue stream pump if still active and on current epoch
-  if (stream.active && stream.epoch === pumpEpoch) {
+  // Continue stream pump: ALWAYS runs after try/finally to never stall pipeline!
+  if (stream.active && !stream.isPaused) {
     if (stream.textBuffer.length > 0) {
       void streamSynthesisPump();
     } else if (!stream.ended) {
@@ -625,9 +644,6 @@ async function streamSynthesisPump(): Promise<void> {
     } else {
       setQueueDrained(true);
     }
-  } else if (stream.active && stream.textBuffer.length > 0 && !stream.isPaused) {
-    // Epoch changed while worker was busy, start pump for the new epoch immediately
-    void streamSynthesisPump();
   }
 }
 
@@ -653,6 +669,7 @@ function finishStream(): void {
 function stopStream(): void {
   log('offscreen', 'log', 'Stream stopped');
   stream.epoch++;
+  clearWorkerQueue();
   stream.active = false;
   stream.isPaused = false;
   stream.textBuffer = [];

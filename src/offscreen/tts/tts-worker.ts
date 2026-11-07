@@ -55,6 +55,14 @@ self.onmessage = async (e: MessageEvent<{ id: number; type: string; [key: string
     if (!busy) void processQueue();
     return;
   }
+
+  if (type === 'clearQueue') {
+    while (queue.length > 0) {
+      const task = queue.shift()!;
+      self.postMessage({ type: 'cancelled', id: task.id });
+    }
+    return;
+  }
 };
 
 async function processQueue(): Promise<void> {

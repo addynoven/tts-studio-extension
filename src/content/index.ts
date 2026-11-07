@@ -351,6 +351,7 @@ function sliceTextFromSentenceOffset(ttsText: string, charOffset: number): strin
 
 function seekToBlock(targetIndex: number, startCharOffset = 0): void {
   if (!streamIterator) return;
+  streamActive = true;
   const clampedIndex = Math.max(0, Math.min(targetIndex, streamIterator.totalBlocks - 1));
   streamEpoch++;
   const thisEpoch = streamEpoch;
@@ -556,7 +557,6 @@ function handleHighlightBlock(blockIndex: number): void {
 
 // Click-to-seek listener (Edge Read Aloud style)
 document.addEventListener('click', (e: MouseEvent) => {
-  if (!streamActive || !streamIterator) return;
   const target = e.target as HTMLElement | null;
   if (!target) return;
 
@@ -576,6 +576,17 @@ document.addEventListener('click', (e: MouseEvent) => {
     return;
   }
 
+  // If stream is not currently active, don't hijack links or navigation menus
+  if (!streamActive) {
+    if (target.closest('a, nav, footer, header, aside, .nav, .menu, .sidebar, #mw-navigation, #vector-toc')) {
+      return;
+    }
+  }
+
+  if (!streamIterator) {
+    streamIterator = new BlockIterator();
+  }
+
   const clickedIndex = streamIterator.findBlockIndexByNode(target);
 
   recordTrackEvent('MOUSE_CLICK', {
@@ -590,6 +601,7 @@ document.addEventListener('click', (e: MouseEvent) => {
   });
 
   if (clickedIndex >= 0) {
+    streamActive = true;
     // If clicking a link within the readable block while TTS is active, prevent navigation
     if (target.closest('a')) {
       e.preventDefault();
