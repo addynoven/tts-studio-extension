@@ -36,14 +36,18 @@ describe('context-menus', () => {
   });
 
   it('creates menu items on install', () => {
+    chrome.contextMenus.create.mockClear();
+    chrome.contextMenus.removeAll.mockClear();
     installedHandler();
     expect(chrome.contextMenus.removeAll).toHaveBeenCalled();
     expect(chrome.contextMenus.create).toHaveBeenCalledTimes(2);
     expect(chrome.contextMenus.create).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'tts-read-selection', contexts: ['selection'] })
+      expect.objectContaining({ id: 'tts-read-selection', contexts: ['selection'] }),
+      expect.anything()
     );
     expect(chrome.contextMenus.create).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'tts-read-article', contexts: ['page'] })
+      expect.objectContaining({ id: 'tts-read-article', contexts: ['page'] }),
+      expect.anything()
     );
   });
 
@@ -83,6 +87,20 @@ describe('context-menus', () => {
     expect(chrome.tabs.sendMessage).toHaveBeenCalledWith(
       1,
       expect.objectContaining({ type: MSG.STREAM_START })
+    );
+  });
+
+  it('handles read-selection on PDF tab directly via TTS_GENERATE without content script', async () => {
+    chrome.tabs.query.mockResolvedValueOnce([{ id: 2, url: 'file:///home/neon/Downloads/book.pdf' }]);
+    chrome.tabs.sendMessage.mockClear();
+    await clickHandler({ menuItemId: 'tts-read-selection', selectionText: 'Designing Data-Intensive Applications' });
+    expect(chrome.tabs.sendMessage).not.toHaveBeenCalled();
+    expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target: 'offscreen',
+        type: MSG.TTS_GENERATE,
+        text: 'Designing Data-Intensive Applications'
+      })
     );
   });
 });

@@ -13,6 +13,7 @@ import { setModuleStatus, setPhase, recordError } from '../shared/state-tracker.
 import { log } from '../shared/logger.js';
 import type { LogEntry } from '../shared/logger.js';
 import { getSettings, updateSettings, onSettingsChanged } from '../shared/storage.js';
+import { isPdfUrl } from '../shared/extension-url.js';
 
 // ── DOM refs ───────────────────────────────────────────────────────────────
 
@@ -159,6 +160,22 @@ async function updatePageDeck(): Promise<void> {
       return;
     }
 
+    if (isPdfUrl(tab.url)) {
+      deckDomain.textContent = 'PDF Document';
+      let cleanTitle = tab.title || '';
+      if (!cleanTitle || cleanTitle.toLowerCase().endsWith('.pdf')) {
+        try {
+          const pathname = new URL(tab.url).pathname;
+          cleanTitle = decodeURIComponent(pathname.substring(pathname.lastIndexOf('/') + 1));
+        } catch {
+          cleanTitle = 'PDF Document';
+        }
+      }
+      deckTitle.textContent = cleanTitle;
+      if (deckStats) deckStats.textContent = 'Select text in PDF & right-click "Read with TTS Studio"';
+      return;
+    }
+
     try {
       const url = new URL(tab.url);
       deckDomain.textContent = url.hostname.replace(/^www\./, '');
@@ -205,6 +222,12 @@ async function extractArticle(): Promise<void> {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab?.id) throw new Error('No active tab');
+
+    if (isPdfUrl(tab.url)) {
+      setUIState('idle');
+      setStatus('idle', 'Select text in the PDF & right-click "Read with TTS Studio"');
+      return;
+    }
 
     // Ensure content script is injected
     try {

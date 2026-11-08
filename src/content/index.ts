@@ -303,8 +303,18 @@ function handleGetSelection(sendResponse: (res: unknown) => void): void {
   sendResponse(result || { text: '', sentences: [], length: 0 });
 }
 
+function isPdfDocument(): boolean {
+  return location.href.toLowerCase().includes('.pdf') || Boolean(document.querySelector('link[href*="pdf_embedder.css"]'));
+}
+
 function handleExtractArticle(message: ContentMessage, sendResponse: (res: unknown) => void): void {
   log('content', 'log', 'EXTRACT_ARTICLE received (batch mode), previewOnly:', Boolean(message.previewOnly));
+
+  if (isPdfDocument()) {
+    log('content', 'log', 'PDF viewer document detected; article extraction not applicable.');
+    sendResponse({ text: '', title: document.title, sentences: [], length: 0 });
+    return;
+  }
 
   const { blocks, title, fullText } = extractMappedArticle();
   log('content', 'log', 'Extracted:', title, '|', blocks.length, 'blocks |', fullText.length, 'chars');
@@ -390,6 +400,12 @@ function seekToBlock(targetIndex: number, startCharOffset = 0): void {
 
 function handleStreamStart(startIndex = 0): void {
   log('content', 'log', 'STREAM_START received, startIndex:', startIndex);
+
+  if (isPdfDocument()) {
+    log('content', 'log', 'PDF viewer document detected; use selection context menu to read PDF text.');
+    streamActive = false;
+    return;
+  }
 
   clearAll();
   streamIterator = new BlockIterator();

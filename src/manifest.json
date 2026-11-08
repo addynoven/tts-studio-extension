@@ -12,6 +12,8 @@
     "tts"
   ],
   "host_permissions": [
+    "<all_urls>",
+    "file:///*",
     "https://huggingface.co/*",
     "https://*.hf.co/*"
   ],

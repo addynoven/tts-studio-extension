@@ -14,3 +14,32 @@ export function getExtensionUrl(path: string): string {
   workerUrl.pathname = workerUrl.pathname.replace(/\/[^/]+\/[^/]+$/, '/') + path;
   return workerUrl.href;
 }
+
+/**
+ * Detect whether a given URL points to a PDF document or is rendered in Chrome's PDF viewer.
+ */
+export function isPdfUrl(url?: string): boolean {
+  if (!url) return false;
+  try {
+    const parsed = new URL(url);
+    return parsed.pathname.toLowerCase().endsWith('.pdf');
+  } catch {
+    return url.toLowerCase().includes('.pdf');
+  }
+}
+
+/**
+ * Detect whether a URL is restricted from extension script injection.
+ */
+export function isRestrictedUrl(url?: string): boolean {
+  if (!url) return false;
+  return (
+    url.startsWith('chrome://') ||
+    url.startsWith('chrome-extension://') ||
+    url.startsWith('devtools://') ||
+    url.startsWith('edge://') ||
+    url.startsWith('about:') ||
+    url.startsWith('view-source:') ||
+    isPdfUrl(url)
+  );
+}

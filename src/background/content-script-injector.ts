@@ -6,6 +6,8 @@
  * content scripts that can't receive messages. We must re-inject manually.
  */
 
+import { isRestrictedUrl } from '../shared/extension-url.js';
+
 const CONTENT_SCRIPT_FILE = 'content.js';
 const INJECTION_TIMEOUT_MS = 3000;
 const POST_INJECTION_DELAY_MS = 300;
@@ -54,8 +56,25 @@ async function injectContentScript(tabId: number): Promise<void> {
  * Ensure the content script is ready in the given tab.
  * If not present, injects it and waits for initialization.
  */
-export async function ensureContentScript(tabId: number): Promise<void> {
+export async function ensureContentScript(tabId: number, url?: string): Promise<void> {
   if (!tabId) throw new Error('No tabId provided');
+
+  if (url && isRestrictedUrl(url)) {
+    console.log(`[TTS Studio DEBUG] Skipping content script injection for restricted URL: ${url}`);
+    return;
+  }
+  if (!url && typeof chrome !== 'undefined' && chrome.tabs?.get) {
+    try {
+      const tab = await chrome.tabs.get(tabId);
+      if (tab?.url && isRestrictedUrl(tab.url)) {
+        console.log(`[TTS Studio DEBUG] Skipping content script injection for restricted tab URL: ${tab.url}`);
+        return;
+      }
+    } catch {
+      // Continue if tab cannot be queried
+    }
+  }
+
   console.log(`[TTS Studio DEBUG] ensureContentScript START for tab ${tabId}`);
 
   const isAlive = await pingContentScript(tabId);
