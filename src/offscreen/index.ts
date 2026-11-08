@@ -605,6 +605,10 @@ async function streamSynthesisPump(): Promise<void> {
     // If still in current epoch, enqueue the synthesized audio to scheduler
     if (stream.active && stream.epoch === pumpEpoch) {
       const { audio, sampleRate, playbackRate } = inferRes;
+      if (audio.length === 0) {
+        log('offscreen', 'log', `Block #${index} (epoch ${pumpEpoch}) has no audio, skipping`);
+        return;
+      }
       const elapsed = Math.round(performance.now() - start);
       recordTiming(`stream_block_${index}`, elapsed);
 
@@ -623,7 +627,7 @@ async function streamSynthesisPump(): Promise<void> {
 
       log('offscreen', 'log', `Block #${index} (epoch ${pumpEpoch}) enqueued at scheduler ${schedIdx}`);
     } else {
-      log('offscreen', 'warn', `[Track: DROPPED_STALE] Dropped audio for Block #${index} because stream epoch changed (${pumpEpoch} -> ${stream.epoch})`);
+      log('offscreen', 'log', `[Track: DROPPED_STALE] Dropped audio for Block #${index} because stream epoch changed (${pumpEpoch} -> ${stream.epoch})`);
     }
 
   } catch (e) {

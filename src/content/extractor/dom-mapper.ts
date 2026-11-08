@@ -14,7 +14,7 @@ const BLOCK_TAGS = new Set([
 const SKIP_TAGS = new Set([
   'SCRIPT', 'STYLE', 'NOSCRIPT', 'IFRAME', 'SVG', 'CANVAS',
   'NAV', 'FOOTER', 'HEADER', 'ASIDE', 'FORM', 'INPUT', 'BUTTON',
-  'SELECT', 'TEXTAREA', 'LABEL'
+  'SELECT', 'TEXTAREA', 'LABEL', 'MAT-ICON'
 ]);
 
 const STOP_SECTIONS = /^(?:see also|references|external links|further reading|bibliography|citations|sources)\s*$/i;
@@ -69,7 +69,7 @@ export class BlockIterator {
       walkBlocks(root, rawBlocks);
     }
 
-    // Step 2: Pre-filter noise without destroying quotes or valid dialogue
+    // Step 2: Pre-filter noise and store strictly valid, readable blocks
     for (const b of rawBlocks) {
       const text = b.rawText.trim();
       const isHeading = /^H[1-6]$/.test(b.el.tagName);
@@ -80,12 +80,9 @@ export class BlockIterator {
       }
       if (this.stopReached) continue;
 
-      if (isHeading && text.length > 0) {
-        this.blocks.push(b);
-        continue;
-      }
+      const ttsText = this.sanitizeBlock(b);
+      if (!this.shouldInclude(b, ttsText)) continue;
 
-      if (text.length < 5) continue;
       this.blocks.push(b);
     }
   }
@@ -95,17 +92,15 @@ export class BlockIterator {
   }
 
   next(): ExtractedBlock | null {
-    while (this.cursor < this.blocks.length) {
-      const b = this.blocks[this.cursor++];
+    if (this.cursor < this.blocks.length) {
+      const idx = this.cursor++;
+      const b = this.blocks[idx];
       const ttsText = this.sanitizeBlock(b);
-
-      if (!this.shouldInclude(b, ttsText)) continue;
-
       return {
         el: b.el,
         rawText: b.rawText,
         ttsText,
-        index: this.cursor - 1
+        index: idx
       };
     }
     return null;
@@ -115,7 +110,6 @@ export class BlockIterator {
     if (index < 0 || index >= this.blocks.length) return null;
     const b = this.blocks[index];
     const ttsText = this.sanitizeBlock(b);
-    if (!this.shouldInclude(b, ttsText)) return null;
     return { el: b.el, rawText: b.rawText, ttsText, index };
   }
 
@@ -190,10 +184,8 @@ export class BlockIterator {
   private sanitizeBlock(b: RawBlock): string {
     let text = sanitizeForTTS(b.html || b.rawText, this.sanitizerOpts).trim();
 
-    if (/^H[1-6]$/.test(b.el.tagName)) {
-      if (text.length > 0 && !/[.!?]$/.test(text)) {
-        text = text + '.';
-      }
+    if (text.length > 0 && !/[.!?:"'”’)\]]$/.test(text)) {
+      text = text + '.';
     }
 
     return text;
@@ -201,21 +193,14 @@ export class BlockIterator {
 
   private shouldInclude(b: RawBlock, ttsText: string): boolean {
     const t = ttsText.trim();
-    const isHeading = /^H[1-6]$/.test(b.el.tagName);
-
-    if (isHeading && t.length > 0) return true;
     if (t.length < 5) return false;
+
+    const isHeading = /^H[1-6]$/.test(b.el.tagName);
+    if (isHeading && t.length > 0) return true;
 
     // Must have at least some letter or number characters
     const alphanumeric = (t.match(/[a-zA-Z0-9]/g) || []).length;
     if (alphanumeric < 3) return false;
-
-    // Check ending punctuation (allows quotes, closing braces, brackets)
-    const lastRealChar = t.replace(/\s+$/, '').slice(-1);
-    if (!/[.!?:"'”’)\]]/.test(lastRealChar)) {
-      // If it doesn't end in punctuation, only reject if it's very short (likely navigation noise)
-      if (t.length < 30) return false;
-    }
 
     return true;
   }
@@ -349,7 +334,11 @@ function walkBlocks(root: Element, blocks: RawBlock[]): void {
       className.includes('toc') ||
       className.includes('metadata') ||
       className.includes('article-footer') ||
-      className.includes('emoji-keyboard')
+      className.includes('emoji-keyboard') ||
+      className.includes('artifact-callout') ||
+      className.includes('ao-language-link') ||
+      className.includes('mat-icon') ||
+      className.includes('google-symbols')
     ) continue;
     if (id === 'catlinks' || id === 'toc' || id === 'references' || id === 'feedback') continue;
 

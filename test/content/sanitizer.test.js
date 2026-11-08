@@ -105,4 +105,20 @@ describe('smart-cleaner', () => {
     expect(result).not.toContain('https://');
     expect(result).not.toContain('[');
   });
+
+  it('strips Indic scripts that lack eSpeak dictionaries in browser WASM', () => {
+    const result = sanitizeForTTS('Audio Overview in: हिन्दी, বাংলা, ગુજરાતી, ಕನ್ನಡ, मराठी, ਪੰਜਾਬ');
+    expect(result).toContain('Audio Overview in:');
+    expect(result).not.toContain('हिन्दी');
+    expect(result).not.toContain('বাংলা');
+    expect(result).not.toContain('ગુજરાતી');
+  });
+
+  it('strips mat-icon and google-symbols elements from HTML', () => {
+    const html = '<div>Thoughts <mat-icon>expand_more</mat-icon> I have generated the chapter.</div>';
+    const result = sanitizeForTTS(html);
+    expect(result).toContain('Thoughts');
+    expect(result).toContain('I have generated the chapter');
+    expect(result).not.toContain('expand_more');
+  });
 });

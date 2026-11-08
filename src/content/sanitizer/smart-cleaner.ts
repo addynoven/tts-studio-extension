@@ -61,6 +61,11 @@ export function sanitizeForTTS(text: string, options: SanitizerOptions = {}): st
       '.reference',
       '.mw-editsection',
       'sup.reference',
+      // Material icons & icon ligatures (e.g. "expand_more", "more_horiz")
+      'mat-icon',
+      '.material-icons',
+      '.google-symbols',
+      '.luminous-icon',
       // Navigation / boilerplate
       '.navbox',
       '.reflist',
@@ -147,7 +152,11 @@ export function sanitizeForTTS(text: string, options: SanitizerOptions = {}): st
   cleaned = cleaned.replace(/\b0x[0-9a-fA-F]+\b/g, ' ');
   cleaned = cleaned.replace(/\b0b[01]+\b/g, ' ');
 
-  // 10. Fix punctuation spacing (leftover gaps from stripped inline math/code)
+  // 10. Strip Indic scripts (Devanagari, Bengali, Gurmukhi, Gujarati, Oriya, Tamil, Telugu, Kannada, Malayalam, Sinhala)
+  // that lack eSpeak dictionaries in browser WASM and spam stderr
+  cleaned = cleaned.replace(/[\u0900-\u0D7F]+/g, ' ');
+
+  // 11. Fix punctuation spacing (leftover gaps from stripped inline math/code/icons)
   cleaned = cleaned
     .replace(/\s+([.,;:!?\]])/g, '$1')   // "matrix ." → "matrix."
     .replace(/\[\s+/g, '[')               // "[ 1" → "[1"

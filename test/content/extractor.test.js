@@ -246,20 +246,30 @@ describe('extractor', () => {
       expect(iter.findBlockIndexByNode(syntheticEl)).toBe(0);
     });
 
-    it('ignores emoji-keyboard and falls back to document.body when candidate has < 2 blocks', () => {
+    it('preserves 1-to-1 index alignment across findBlockIndexByNode, seek, and next without index drift', () => {
       document.body.innerHTML = `
-        <main class="emoji-keyboard__grid" aria-hidden="true">
-          <span>😀</span>
-        </main>
-        <div class="content">
-          <p>First authentic paragraph in the main body.</p>
-          <p>Second authentic paragraph in the main body.</p>
-        </div>
+        <article>
+          <h2 class="cover-title">Designing Data-Intensive Applications</h2>
+          <div class="cover-subtitle">1 source·Nov 7, 2026</div>
+          <p class="description">Designing Data-Intensive Applications serves as a foundational guide for software engineers.</p>
+        </article>
       `;
 
-      const iter = new BlockIterator();
-      expect(iter.totalBlocks).toBe(2);
-      expect(iter.next()?.rawText).toContain('First authentic paragraph');
+      const iter = new BlockIterator({}, document.body);
+      expect(iter.totalBlocks).toBe(3);
+
+      const subtitleEl = document.querySelector('.cover-subtitle');
+      const foundIdx = iter.findBlockIndexByNode(subtitleEl);
+      expect(foundIdx).toBe(1);
+
+      iter.seek(1);
+      const block1 = iter.next();
+      expect(block1?.index).toBe(1);
+      expect(block1?.rawText).toContain('1 source');
+
+      const directBlock1 = iter.getBlock(1);
+      expect(directBlock1?.index).toBe(1);
+      expect(directBlock1?.rawText).toContain('1 source');
     });
   });
 });

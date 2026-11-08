@@ -222,7 +222,19 @@ export async function generateKokoro(
   }
 
   try {
-    const rawAudio = await kokoroInstance.generate(text, {
+    // Pre-sanitize text to ensure no unphonemizable Indic characters trigger eSpeak dictionary errors
+    const cleanText = text.replace(/[\u0900-\u0D7F]+/g, ' ').trim();
+    if (!cleanText || !(cleanText.match(/[a-zA-Z0-9]/))) {
+      return {
+        audio: new Float32Array(0),
+        sampleRate: 24000,
+        playbackRate: 1.0,
+        duration: 0,
+        wordTimings: []
+      };
+    }
+
+    const rawAudio = await kokoroInstance.generate(cleanText, {
       voice: voice as unknown as Parameters<typeof kokoroInstance.generate>[1] extends { voice?: infer V } ? V : never,
       speed
     });
@@ -232,14 +244,14 @@ export async function generateKokoro(
     const audioData = new Float32Array(rawAudio.audio);
 
     // Sanity check: verify output is not empty/silent/corrupted from an async WebGPU OOM
-    if (isAudioCorruptedOrSilent(audioData)) {
+    if (audioData.length > 0 && isAudioCorruptedOrSilent(audioData)) {
       throw new Error(`Synthesized audio buffer is silent or corrupted (${audioData.length} samples, possible WebGPU VRAM exhaustion)`);
     }
 
     const duration = audioData.length / sampleRate;
 
     // Compute character/syllable-weighted word boundary timings
-    const wordTimings = computeWordTimings(text, duration);
+    const wordTimings = computeWordTimings(cleanText, duration);
 
     return {
       audio: audioData,
