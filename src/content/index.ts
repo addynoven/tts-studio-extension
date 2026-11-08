@@ -579,7 +579,18 @@ function handleHighlightBlock(blockIndex: number): void {
 }
 
 // Click-to-seek listener (Edge Read Aloud style)
+// ONLY seeks when reading is ALREADY actively running.
+// Never starts playback from passive page clicks or double-clicks.
+// Playback must be explicitly started by the user via:
+// 1. Floating selection speaker button ("🔊 Read")
+// 2. Right-click context menu ("🎙️ Read with TTS Studio")
+// 3. Extension popup ("Read this article" / Play button)
 document.addEventListener('click', (e: MouseEvent) => {
+  // If reading is not actively in progress, never start from a passive page click or double-click
+  if (!streamActive || !streamIterator) {
+    return;
+  }
+
   const target = e.target as HTMLElement | null;
   if (!target) return;
 
@@ -597,17 +608,6 @@ document.addEventListener('click', (e: MouseEvent) => {
   const sel = window.getSelection();
   if (sel && !sel.isCollapsed && (sel.toString() || '').trim().length > 0) {
     return;
-  }
-
-  // If stream is not currently active, don't hijack links or navigation menus
-  if (!streamActive) {
-    if (target.closest('a, nav, footer, header, aside, .nav, .menu, .sidebar, #mw-navigation, #vector-toc')) {
-      return;
-    }
-  }
-
-  if (!streamIterator) {
-    streamIterator = new BlockIterator();
   }
 
   let clickedIndex = streamIterator.findBlockIndexByNode(target);
